@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>救急救命士 薬剤プレテスト Smart300 Ver.2.1</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --success-color: #28a745;
+            --danger-color: #d93025;
+            --bg-color: #f0f4f8;
+        }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background: var(--bg-color); padding: 20px; color: #333; line-height: 1.6; }
+        .app-container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        
+        /* 進捗バー */
+        .progress-outer { margin-bottom: 25px; background: #e9ecef; border-radius: 20px; height: 24px; position: relative; overflow: hidden; border: 1px solid #dee2e6; }
+        .progress-inner { background: linear-gradient(90deg, #28a745, #85d296); height: 100%; width: 0%; transition: width 0.5s ease; }
+        .progress-text { position: absolute; width: 100%; text-align: center; font-size: 13px; line-height: 24px; font-weight: bold; color: #212529; }
+
+        /* 設定パネル */
+        .setup-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 25px; border: 1px solid #dee2e6; }
+        .setup-item label { font-size: 0.85rem; font-weight: bold; display: block; margin-bottom: 8px; color: #495057; }
+        select { padding: 10px; border-radius: 6px; border: 1px solid #ced4da; width: 100%; background-color: white; font-size: 0.95rem; }
+
+        /* 問題表示エリア */
+        .question-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        #q-num { font-size: 1.1rem; font-weight: bold; color: var(--primary-color); }
+        .question-text { font-size: 1.35rem; line-height: 2.3; background: #ffffff; padding: 30px; border: 2px solid #e9ecef; border-radius: 12px; min-height: 160px; margin-bottom: 25px; }
+        
+        /* 虫食いスタイル */
+        .blank { display: inline-block; min-width: 60px; border-bottom: 2px solid var(--primary-color); text-align: center; color: transparent; cursor: pointer; background: #f8fbff; margin: 0 3px; border-radius: 4px; transition: all 0.2s; position: relative; }
+        .blank:hover { background: #eef5ff; }
+        .blank.revealed { color: var(--danger-color); background: transparent; border-bottom: none; font-weight: bold; cursor: default; }
+
+        /* ボタン */
+        .btn-group { display: flex; gap: 15px; justify-content: center; margin-bottom: 30px; }
+        button { padding: 14px 28px; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: bold; transition: all 0.2s; }
+        button:active { transform: translateY(2px); }
+        .primary { background: var(--primary-color); color: white; }
+        .secondary { background: var(--secondary-color); color: white; }
+        .outline { background: white; border: 2px solid var(--primary-color); color: var(--primary-color); }
+
+        .nav-group { display: flex; justify-content: space-between; align-items: center; border-top: 2px solid #f8f9fa; padding-top: 20px; }
+        
+        /* チェックボックス */
+        .checkbox-label { display: flex; align-items: center; gap: 5px; font-weight: bold; cursor: pointer; color: #555; font-size: 0.9rem; }
+        .checkbox-label input { transform: scale(1.2); cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h2 style="text-align:center; margin-top:0;">🚑 救急救命士 プレテスト Smart300</h2>
+
+    <div class="progress-outer">
+        <div id="progress-bar" class="progress-inner"></div>
+        <div id="progress-text" class="progress-text">読込中...</div>
+    </div>
+    
+    <div class="setup-panel">
+        <div class="setup-item">
+            <label>📂 カテゴリ:</label>
+            <select id="category-filter" onchange="resetIndex()">
+                <option value="all">すべて表示</option>
+            </select>
+        </div>
+        <div class="setup-item">
+            <label>🔄 出順モード:</label>
+            <select id="order-mode" onchange="resetIndex()">
+                <option value="sequential">番号順</option>
+                <option value="random">スマートランダム (重複なし)</option>
+                <option value="weak">苦手問題のみ</option>
+            </select>
+        </div>
+        <div class="setup-item">
+            <label>⚡ 難易度:</label>
+            <select id="difficulty" onchange="loadQuiz()">
+                <option value="0.3">初級 (30%)</option>
+                <option value="0.6" selected>中級 (60%)</option>
+                <option value="1.0">上級 (全消し)</option>
+                <option value="super">超上級 (漢字1文字残し)</option>
+            </select>
+        </div>
+        <div class="setup-item" style="display: flex; align-items: flex-end; padding-bottom: 5px;">
+            <label class="checkbox-label" title="答え(虫食い箇所)に数字が含まれる問題のみを表示します">
+                <input type="checkbox" id="number-only-filter" onchange="resetIndex()"> 🔢 答えが数字の問題
+            </label>
+        </div>
+    </div>
+
+    <div class="question-header">
+        <div id="q-num">Loading...</div>
+        <label class="checkbox-label">
+            <input type="checkbox" id="weak-checkbox" onchange="toggleWeak()"> ⭐ 苦手登録
+        </label>
+    </div>
+
+    <div id="display" class="question-text"></div>
+
+    <div class="btn-group">
+        <button class="secondary" onclick="revealAll()">答えを確認 (A)</button>
+        <button class="primary" onclick="nextQuestion()">次の問題へ (Enter)</button>
+    </div>
+<div class="nav-group">
+        <button class="outline" onclick="prevQuestion()">◀ 前の問題</button>
+        <span id="counter-text">- / -</span>
+        <button class="outline" onclick="nextQuestion()">次の問題へ ▶</button>
+    </div>
+</div>
+
+<script src="questions1.js"></script>
+<script src="questions2.js"></script>
+<script src="questions3.js"></script>
+<script src="questions4.js"></script>
+<script src="questions5.js"></script>
+<script src="questions6.js"></script>
+
+<script>
+let allQuizData = [];
+let currentIndex = 0;
+let smartRandomQueue = []; 
+let weakList = JSON.parse(localStorage.getItem('weakList')) || [];
+let history = JSON.parse(localStorage.getItem('quizHistory')) || [];
+
+function init() {
+    try {
+        // 1-300問すべてのデータを統合
+        allQuizData = [].concat(
+            typeof quizData1 !== 'undefined' ? quizData1 : [],
+            typeof quizData2 !== 'undefined' ? quizData2 : [],
+            typeof quizData3 !== 'undefined' ? quizData3 : [],
+            typeof quizData4 !== 'undefined' ? quizData4 : [],
+            typeof quizData5 !== 'undefined' ? quizData5 : [],
+            typeof quizData6 !== 'undefined' ? quizData6 : []
+        );
+
+        if (allQuizData.length === 0) {
+            document.getElementById('display').innerHTML = "JSデータが読み込めません。JSファイル名と変数名(quizData1〜6)を確認してください。";
+            return;
+        }
+    } catch (e) { console.error(e); }
+
+    // カテゴリフィルタの動的生成
+    const categories = [...new Set(allQuizData.map(q => q.category))];
+    const filter = document.getElementById('category-filter');
+    filter.innerHTML = '<option value="all">すべて表示</option>';
+    categories.forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value = cat; opt.textContent = cat;
+        filter.appendChild(opt);
+    });
+
+    updateProgress();
+    loadQuiz();
+}
+
+function resetIndex() {
+    currentIndex = 0;
+    smartRandomQueue = []; 
+    loadQuiz();
+}
+
+function getActiveList() {
+    const cat = document.getElementById('category-filter').value;
+    const mode = document.getElementById('order-mode').value;
+    const numberOnly = document.getElementById('number-only-filter').checked;
+    
+    let list = allQuizData;
+    if (cat !== 'all') list = list.filter(q => q.category === cat);
+    if (mode === 'weak') list = list.filter(q => weakList.includes(q.id));
+    
+    if (numberOnly) {
+        list = list.filter(q => q.targets.some(t => /[0-9０-９]/.test(t)));
+    }
+    
+    return list;
+}
+
+function refreshSmartRandomQueue(length) {
+    smartRandomQueue = [...Array(length).keys()];
+    for (let i = smartRandomQueue.length - 1; i > 0; i--) {
+        const r = Math.floor(Math.random() * (i + 1));
+        [smartRandomQueue[i], smartRandomQueue[r]] = [smartRandomQueue[r], smartRandomQueue[i]];
+    }
+}
+
+function loadQuiz() {
+    const activeData = getActiveList();
+    const mode = document.getElementById('order-mode').value;
+    const diff = document.getElementById('difficulty').value;
+
+    if (activeData.length === 0) {
+        document.getElementById('display').innerHTML = "該当する問題がありません。";
+        document.getElementById('counter-text').textContent = "0 / 0";
+        return;
+    }
+
+    let targetIndex;
+    if (mode === 'random') {
+        if (smartRandomQueue.length !== activeData.length) {
+            refreshSmartRandomQueue(activeData.length);
+            currentIndex = 0;
+        }
+        targetIndex = smartRandomQueue[currentIndex];
+    } else {
+        if (currentIndex >= activeData.length) currentIndex = 0;
+        targetIndex = currentIndex;
+    }
+
+    const item = activeData[targetIndex];
+    
+    if (!history.includes(item.id)) {
+        history.push(item.id);
+        localStorage.setItem('quizHistory', JSON.stringify(history));
+        updateProgress();
+    }
+
+    document.getElementById('q-num').textContent = `【${item.category}】 No.${item.id}`;
+    document.getElementById('counter-text').textContent = `${currentIndex + 1} / ${activeData.length}`;
+    document.getElementById('weak-checkbox').checked = weakList.includes(item.id);
+
+    let processedHtml = "";
+    if (diff === "super") {
+        const superRegex = /([一-龠]{2,}|[ァ-ヴー]+|[a-zA-Z0-9]+)/g;
+        processedHtml = item.text.replace(superRegex, m => `<span class="blank" onclick="this.classList.add('revealed')">${m}</span>`);
+    } else {
+        let text = item.text;
+        const rate = parseFloat(diff);
+        const shuffled = [...item.targets].sort(() => Math.random() - 0.5);
+        const numToHide = Math.max(1, Math.ceil(item.targets.length * rate));
+        const finalTargets = shuffled.slice(0, numToHide).sort((a, b) => b.length - a.length);
+
+        finalTargets.forEach(target => {
+            text = text.split(target).join(`###${target}###`);
+        });
+        processedHtml = text.replace(/###(.*?)###/g, (m, p1) => `<span class="blank" onclick="this.classList.add('revealed')">${p1}</span>`);
+    }
+    document.getElementById('display').innerHTML = processedHtml;
+}
+
+function nextQuestion() {
+    const activeData = getActiveList();
+    if (activeData.length === 0) return;
+    
+    currentIndex++;
+    if (currentIndex >= activeData.length) {
+        if (document.getElementById('order-mode').value === 'random') {
+            alert("一周しました。新しい順序で再開します。");
+            refreshSmartRandomQueue(activeData.length);
+        }
+        currentIndex = 0;
+    }
+    loadQuiz();
+}
+
+function prevQuestion() {
+    const activeData = getActiveList();
+    if (activeData.length === 0) return;
+    currentIndex = (currentIndex - 1 + activeData.length) % activeData.length;
+    loadQuiz();
+}
+
+function revealAll() {
+    document.querySelectorAll('.blank').forEach(el => el.classList.add('revealed'));
+}
+
+function toggleWeak() {
+    const activeData = getActiveList();
+    const mode = document.getElementById('order-mode').value;
+    const realIdx = (mode === 'random') ? smartRandomQueue[currentIndex] : currentIndex;
+    const item = activeData[realIdx];
+    if (!item) return;
+
+    if (document.getElementById('weak-checkbox').checked) {
+        if (!weakList.includes(item.id)) weakList.push(item.id);
+    } else {
+        weakList = weakList.filter(id => id !== item.id);
+    }
+    localStorage.setItem('weakList', JSON.stringify(weakList));
+}
+
+function updateProgress() {
+    const total = allQuizData.length;
+    const completed = history.length;
+    const percent = total > 0 ? Math.floor((completed / total) * 100) : 0;
+    document.getElementById('progress-bar').style.width = percent + "%";
+    document.getElementById('progress-text').textContent = `全問進捗: ${completed} / ${total} (${percent}%)`;
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); nextQuestion(); }
+    if (e.key === 'a' || e.key === 'A') revealAll();
+});
+
+window.onload = init;
+</script>
+</body>
+</html>
