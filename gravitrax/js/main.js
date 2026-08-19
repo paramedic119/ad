@@ -153,7 +153,7 @@ class App {
       const p = this.model.playable;
       if (!p.starter) this.hint('スタートの パーツが ないよ。「つくる」で おいてね', 'pick');
       else if (!p.goal) this.hint('ゴールが ないよ。「つくる」で おいてね', 'pick');
-      else this.hint('「スタート」を おして ボールを ころがそう！', 'go');
+      else this.hint('「スタート」を おそう！', 'go');
     } else {
       this.sim.running = false;
       this.sfx.stopRolling();
@@ -178,10 +178,10 @@ class App {
     this.updateHint();
     if (!silent) { this.sfx.play('tap'); buzz(BUZZ.tap); }
     if (id === 'rail') {
-      this.ui.toast('パーツを タップすると、つなげる あいてが 光るよ');
+      this.ui.toast('パーツを タップすると あいてが 光るよ');
       this.ui.setTool(null);
     } else if (PARTS[id]) {
-      this.hint(`「${PARTS[id].short}」の カードを つまんで ばんに はこんでね`, 'pick');
+      this.hint(`「${PARTS[id].short}」を つまんで ばんに はこんでね`, 'pick');
     }
   }
 
@@ -221,14 +221,14 @@ class App {
 
   updateHint() {
     if (this.mode === 'play') return;
-    if (this.eraseMode) return this.hint('けしたい パーツや レールを タップしてね', 'pick');
+    if (this.eraseMode) return this.hint('けしたい ものを タップしてね', 'pick');
     if (this.selected) {
       if (this.targets && this.targets.length) {
-        return this.hint('光っている パーツを タップ！ レールで つながるよ', 'pick');
+        return this.hint('光っている パーツを タップ！', 'pick');
       }
-      return this.hint('金いろの とってを つまむと たかさが かわるよ');
+      return this.hint('金の とってを つまむと たかさが かわる');
     }
-    this.hint('したの カードを つまんで ばんに はこんでね');
+    this.hint('カードを つまんで ばんに はこんでね');
   }
 
   /* ── 指でつまむ ── */
@@ -574,7 +574,7 @@ class App {
       this.sim.running = false;
       this.sfx.stopRolling();
       this.ui.setRunning(false);
-      this.hint('つづきは もういちど 「スタート」', 'go');
+      this.hint('もういちど「スタート」で つづき', 'go');
       return;
     }
     if (this.sim.finished) this.sim.reset();
@@ -647,7 +647,7 @@ class App {
           [{ label: 'ほかの おだい', onClick: () => this.showQuests() },
            { label: 'もっと あそぶ', primary: true }]);
       } else {
-        this.hint(`ゴールは ${s.goal}こ。あと ${need - s.goal}こ！ もういちど やってみよう`, 'pick');
+        this.hint(`あと ${need - s.goal}こ！ もういちど`, 'pick');
         this.ui.toast(`あと ${need - s.goal}こ！`, 'bad');
       }
       return;
@@ -657,7 +657,7 @@ class App {
       this.hint(`やったね！ ゴール ${s.goal}こ`, 'go');
     } else {
       this.ui.toast('ゴールに とどかなかったよ', 'bad');
-      this.hint('「つくる」に もどって、さかを ゆるやかに してみよう', 'pick');
+      this.hint('「つくる」で さかを なおしてみよう', 'pick');
     }
   }
 
@@ -695,7 +695,7 @@ class App {
     this.ui.setQuest(ch, { cleared: this.cleared.has(ch.id) });
     this.mode = 'play'; this.setMode('build');
     this.frameContent();
-    this.hint(ch.desc, 'pick');
+    this.ui.toast(ch.desc, 'pick');   // 帯を占領しないよう、みじかく出して消す
   }
 
   exitChallenge() {
