@@ -80,7 +80,7 @@ export function hexPrismGeo(radius = HEX_R, height = 0.6, round = 0.06) {
 }
 
 /** 点列に沿ったチューブ */
-export function tubeGeo(points, radius, radial = 7) {
+export function tubeGeo(points, radius, radial = 9) {
   const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.5);
   const seg = Math.max(4, Math.min(160, Math.round(curve.getLength() / 0.12)));
   return new THREE.TubeGeometry(curve, seg, radius, radial, false);
@@ -101,8 +101,8 @@ export function offsetPolyline(points, lateral, dy = 0) {
 /** 2 本のロッドからなるレール（GraviTrax のレールの見た目） */
 export function railPairGeo(points, rodR, sep, dy) {
   return mergeGeos([
-    tubeGeo(offsetPolyline(points, sep, dy), rodR, 6),
-    tubeGeo(offsetPolyline(points, -sep, dy), rodR, 6),
+    tubeGeo(offsetPolyline(points, sep, dy), rodR, 8),
+    tubeGeo(offsetPolyline(points, -sep, dy), rodR, 8),
   ]);
 }
 

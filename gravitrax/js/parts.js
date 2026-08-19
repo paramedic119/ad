@@ -123,10 +123,10 @@ export const PARTS = {
   /* ── カーブ（ストレート含む） ───────────────────────── */
   curve: {
     id: 'curve', name: 'カーブ', color: GREY, cat: 'track',
-    short: 'カーブ',
+    short: 'みち',
     stock: 28,
-    desc: 'コースの基本パーツ。回転と形状を変えて 5 種類の曲がり方に使える。',
-    variants: ['ストレート', 'ゆるいカーブ（左）', 'ゆるいカーブ（右）', '急カーブ（左）', '急カーブ（右）'],
+    desc: 'コースの きほんの パーツ。まっすぐにも カーブにも なるよ。',
+    variants: ['まっすぐ', 'ゆるく ひだり', 'ゆるく みぎ', 'キュッと ひだり', 'キュッと みぎ'],
     localPaths(cfg) {
       const k = CURVE_K[cfg] ?? 3;
       return [{ ends: [End.port(0), End.port(k)], pts: channelPoints(0, k) }];
@@ -144,8 +144,8 @@ export const PARTS = {
     id: 'cross', name: 'クロス', color: 0x99a3ae, cat: 'track',
     short: 'クロス',
     stock: 4,
-    desc: '2 本のコースを交差させる。ボールはそれぞれまっすぐ通り抜ける。',
-    variants: ['交差'],
+    desc: 'みちを ぺけ の かたちに こうさ させる。ボールは まっすぐ とおりぬけるよ。',
+    variants: ['こうさ'],
     localPaths() {
       return [
         { ends: [End.port(0), End.port(3)], pts: channelPoints(0, 3) },
@@ -163,10 +163,10 @@ export const PARTS = {
   /* ── 振り分け（Yポイント／スイッチ） ───────────────── */
   splitter: {
     id: 'splitter', name: '振り分け', color: 0x2f86e8, cat: 'track',
-    short: '振り分け',
+    short: 'わかれみち',
     stock: 4,
-    desc: 'ボールが来るたびに左右の出口へ交互に振り分ける。',
-    variants: ['交互に振り分け'],
+    desc: 'ボールが くるたびに ひだり・みぎ と こうごに わかれるよ。',
+    variants: ['こうごに わける'],
     alternates: true,
     localPaths() {
       return [
@@ -195,8 +195,8 @@ export const PARTS = {
     short: 'ボルテックス',
     walled: true, hole: 0.52,
     stock: 1,
-    desc: 'すり鉢の中をぐるぐる回りながら降り、真下へ落ちていく。下でキャッチャーなどが必要。',
-    variants: ['渦'],
+    desc: 'ぐるぐる まわりながら おりて、まっすぐ したに おちるよ。したで うけとめてね。',
+    variants: ['うずまき'],
     localPaths() {
       return [{ ends: [End.port(0), End.open()], pts: vortexPoints(0), raw: true }];
     },
@@ -227,8 +227,8 @@ export const PARTS = {
     short: 'キャノン',
     walled: true,
     stock: 1, usesBalls: 2,
-    desc: '飛び込んできたボールが磁石にくっつき、反対側のボールを勢いよく撃ち出す。',
-    variants: ['砲身'],
+    desc: 'とびこんだ ボールが じしゃくに くっついて、はんたいがわの ボールを ビュン！と うちだす。うえに のぼれる ゆいいつの パーツだよ。',
+    variants: ['ほうしん'],
     entryPort: 0, exitPort: 3,
     localPaths() {
       return [{ ends: [End.port(0), End.port(3)], pts: channelPoints(0, 3) }];
@@ -255,8 +255,8 @@ export const PARTS = {
     short: 'スターター',
     walled: true,
     stock: 1,
-    desc: 'ボールをセットしてスタート。出口は 1〜3 方向に切り替えられる。',
-    variants: ['出口 1 方向', '出口 2 方向', '出口 3 方向'],
+    desc: 'ここから ボールが でてくるよ。でぐちは 3 ほうこう まで ふやせる。',
+    variants: ['でぐち 1つ', 'でぐち 2つ', 'でぐち 3つ'],
     exitsFor(cfg) { return [[0], [0, 3], [0, 2, 4]][cfg] || [0]; },
     localPaths(cfg) {
       const c = V(0, PY + 0.11, 0);
@@ -283,7 +283,7 @@ export const PARTS = {
     short: 'ゴール',
     walled: true,
     stock: 1,
-    desc: 'ボールのゴール。上から落ちてきたボールも受け止める。',
+    desc: 'ここに ボールを いれたら せいこう！ そらから おちてきた ボールも うけとめるよ。',
     variants: ['ゴール'],
     catchZone: { r: 0.66, y: TILE_T + 0.44 },
     localPaths() {
@@ -314,11 +314,11 @@ export const PARTS = {
   /* ── キャッチャー ───────────────────────────────── */
   catcher: {
     id: 'catcher', name: 'キャッチャー', color: 0xf2c531, cat: 'special',
-    short: 'キャッチャー',
+    short: 'うけざら',
     walled: true,
     stock: 2,
-    desc: '空中を落ちてきたボールを受け止めて、コースに戻す。',
-    variants: ['受け皿'],
+    desc: 'そらから おちてきた ボールを うけとめて、また ころがすよ。',
+    variants: ['うけざら'],
     catchZone: { r: 0.72, y: TILE_T + 0.62 },
     localPaths() {
       const p = portLocal(0);
@@ -342,11 +342,11 @@ export const PARTS = {
   /* ── フリーフォール ─────────────────────────────── */
   freefall: {
     id: 'freefall', name: 'フリーフォール', color: 0xe0503a, cat: 'special',
-    short: '落とし穴',
+    short: 'おとしあな',
     walled: true, hole: 0.38,
     stock: 1,
-    desc: 'コースに開いた落とし穴。ボールはここから真下へ落ちる。',
-    variants: ['落とし穴'],
+    desc: 'ボールが まっすぐ したに おちる あな。したで うけとめてね。',
+    variants: ['おとしあな'],
     localPaths() {
       return [{ ends: [End.port(0), End.open()], pts: freeFallPoints(0) }];
     },
@@ -371,9 +371,9 @@ export const PART_ORDER = ['curve', 'cross', 'splitter', 'starter', 'goal', 'cat
 /* ─────────────── レール ─────────────── */
 
 export const RAILS = {
-  railS: { id: 'railS', name: '短いレール', span: 2, stock: 9, color: 0x8d98a5 },
-  railM: { id: 'railM', name: '中くらいのレール', span: 3, stock: 6, color: 0x8d98a5 },
-  railL: { id: 'railL', name: '長いレール', span: 4, stock: 3, color: 0x8d98a5 },
+  railS: { id: 'railS', name: 'みじかい レール', span: 2, stock: 9, color: 0x8d98a5 },
+  railM: { id: 'railM', name: 'ふつうの レール', span: 3, stock: 6, color: 0x8d98a5 },
+  railL: { id: 'railL', name: 'ながい レール', span: 4, stock: 3, color: 0x8d98a5 },
 };
 export const RAIL_ORDER = ['railS', 'railM', 'railL'];
 export const RAIL_BY_SPAN = { 2: 'railS', 3: 'railM', 4: 'railL' };
