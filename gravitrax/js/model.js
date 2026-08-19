@@ -186,16 +186,49 @@ export class Model {
   }
 
   /**
-   * レールの傾き具合。'good' 転がる / 'flat' ゆるすぎ / 'steep' 急すぎ
-   * このゲームでいちばん大事なルールを目に見えるようにするために使う。
+   * スタートから辿って、それぞれのレールをどちら向きに通るかを調べる。
+   * これが分かると「のぼりざか」を見抜ける（ボールは坂を登れない）。
    */
-  railGrade(rail) {
+  railFlow() {
+    const flow = new Map();
+    const queue = [...this.cells.values()].filter((c) => c.type === 'starter');
+    const seen = new Set(queue);
+    while (queue.length) {
+      const c = queue.shift();
+      for (const l of this.railsOf(c)) {
+        const other = l.a === c ? l.b : l.a;
+        if (!flow.has(l)) flow.set(l, other.level < c.level ? 'down' : 'up');
+        if (!seen.has(other)) { seen.add(other); queue.push(other); }
+      }
+    }
+    return flow;
+  }
+
+  /**
+   * レールの傾き具合。このゲームでいちばん大事なルールを目に見えるようにする。
+   *   'up'    のぼりざか。ボールは登れない
+   *   'flat'  たいらすぎて とまってしまう
+   *   'gentle' ゆるい / 'steep' きゅうすぎ
+   *   'good'  ちょうどよく ころがる
+   */
+  railGrade(rail, flow) {
+    if ((flow || this._flow || new Map()).get(rail) === 'up') return 'up';
     const drop = Math.abs(rail.a.level - rail.b.level) * H;
     const run = (rail.span - 1) * HEX_W;
     const deg = (Math.atan2(drop, run) * 180) / Math.PI;
     if (deg < 4) return 'flat';
+    if (deg < 8) return 'gentle';
     if (deg > 34) return 'steep';
     return 'good';
+  }
+
+  /** すべてのレールの坂ぐあいを一度に求める */
+  gradeMap() {
+    const flow = this.railFlow();
+    this._flow = flow;
+    const out = new Map();
+    for (const l of this.rails) out.set(l, this.railGrade(l, flow));
+    return out;
   }
 
   /** 向き・形が変わって使えなくなったレールを外す */

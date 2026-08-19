@@ -36,6 +36,13 @@ export function createMaterials() {
       return new THREE.MeshStandardMaterial({ color, roughness: 0.32, metalness: 0.75 });
     }),
     groove: new THREE.MeshStandardMaterial({ color: 0x2b313a, roughness: 0.88, metalness: 0.06 }),
+    railWarn: new THREE.MeshStandardMaterial({
+      color: 0xffc93c, roughness: 0.35, metalness: 0.4, emissive: 0x6b4c00, emissiveIntensity: 0.8 }),
+    railBad: new THREE.MeshStandardMaterial({
+      color: 0xff6b6b, roughness: 0.35, metalness: 0.4, emissive: 0x6b0f0f, emissiveIntensity: 1.0 }),
+    handle: new THREE.MeshStandardMaterial({
+      color: 0xffd25a, roughness: 0.3, metalness: 0.2, emissive: 0x6b5200, emissiveIntensity: 0.7 }),
+    invisible: new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
     dark: new THREE.MeshStandardMaterial({ color: 0x353b43, roughness: 0.6, metalness: 0.2 }),
     steel: new THREE.MeshStandardMaterial({ color: 0xe8ecf1, roughness: 0.13, metalness: 1.0 }),
     flag: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide }),
@@ -108,6 +115,12 @@ export class OrbitCam {
     this.enabled = true;
     this.onTap = null;             // (clientX, clientY, button) => void
     this.onHover = null;           // (clientX, clientY) => void
+    // 掴めるもの（パーツ／たかさのとって）が指の下にあるか、アプリに聞く。
+    // あればそのドラッグはアプリのもの、なければカメラを回す。
+    this.hitTest = null;           // (x, y) => boolean
+    this.onDragStart = null;       // (x, y) => void
+    this.onDrag = null;            // (x, y) => void
+    this.onDragEnd = null;         // (x, y, cancelled) => void
     this._pointers = new Map();
     this._mode = null;
     this._moved = 0;
@@ -144,7 +157,9 @@ export class OrbitCam {
       if (this._pointers.size === 1) {
         this._moved = 0;
         this._mode = (e.button === 0 && !e.shiftKey) ? 'tap' : 'pan';
+        this._canGrab = this._mode === 'tap' && !!this.hitTest && this.hitTest(e.clientX, e.clientY);
       } else if (this._pointers.size === 2) {
+        if (this._mode === 'grab' && this.onDragEnd) this.onDragEnd(e.clientX, e.clientY, true);
         this._mode = 'pinch';
         this._pinch = this._pinchDist();
       }
@@ -165,7 +180,13 @@ export class OrbitCam {
         this.update();
         return;
       }
-      if (this._mode === 'tap' && this._moved > 7) this._mode = 'orbit';
+      if (this._mode === 'tap' && this._moved > 7) {
+        if (this._canGrab) {
+          this._mode = 'grab';
+          if (this.onDragStart) this.onDragStart(e.clientX, e.clientY);
+        } else this._mode = 'orbit';
+      }
+      if (this._mode === 'grab') { if (this.onDrag) this.onDrag(e.clientX, e.clientY); return; }
       if (this._mode === 'orbit') {
         this.theta -= dx * 0.0055;
         this.phi = clamp(this.phi - dy * 0.0055, 0.06, Math.PI * 0.495);
@@ -181,6 +202,9 @@ export class OrbitCam {
       this._pointers.delete(e.pointerId);
       if (p && this._mode === 'tap' && this._moved <= 7 && this.onTap) {
         this.onTap(e.clientX, e.clientY, p.button);
+      }
+      if (this._mode === 'grab' && this.onDragEnd) {
+        this.onDragEnd(e.clientX, e.clientY, e.type === 'pointercancel');
       }
       if (this._pointers.size === 0) this._mode = null;
       else if (this._pointers.size === 1) { this._mode = 'orbit'; }
@@ -529,6 +553,9 @@ export class View {
     const g = this.courseGroup;
     g.clear();
     this._pickables.length = 0;
+    this._railPickables = [];
+    this._cellNodes = new Map();
+    this._railNodes = new Map();
 
     if (!this._postGeo) {
       // 高さ 1 の柱（下端が y=0）。インスタンスごとに y 方向へ伸ばして使う。
@@ -575,6 +602,7 @@ export class View {
       node.userData.cell = c;
       node.traverse((o) => { if (o.isMesh) { o.userData.cell = c; this._pickables.push(o); } });
       g.add(node);
+      this._cellNodes.set(c, node);
       if (c.locked) {
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(HEX_R * 0.99, 0.028, 6, 6),
@@ -585,21 +613,38 @@ export class View {
       }
     }
 
-    // ── レール ──
+    // ── レール（坂ぐあいで色を変える） ──
+    const grades = model.gradeMap();
     const a = new THREE.Vector3(), b = new THREE.Vector3();
     for (const l of model.rails) {
       if (!l.a || !l.b) continue;
       portPos(l.a.q, l.a.r, l.a.level, l.d1, a);
       portPos(l.b.q, l.b.r, l.b.level, l.d2, b);
-      const node = this.railNode(a, b);
+      const node = this.railNode(a, b, grades.get(l));
       node.userData.rail = l;
-      node.traverse((o) => { if (o.isMesh) { o.userData.rail = l; this._pickables.push(o); } });
+      // レールは「けす」ときだけ当たり判定に入れる。
+      // ふだんも入れてしまうと、パーツの手前に重なって掴めなくなる。
+      node.traverse((o) => { if (o.isMesh) { o.userData.rail = l; this._railPickables.push(o); } });
       g.add(node);
+      this._railNodes.set(l, node);
     }
   }
 
+  /** 坂の良し悪しに応じたレールのマテリアル。ふつうは金属色のまま。 */
+  railMaterial(grade) {
+    if (grade === 'up' || grade === 'flat') return this.M.railBad;
+    if (grade === 'gentle' || grade === 'steep') return this.M.railWarn;
+    return this.M.rail(0x99a3ae);
+  }
+
+  /** 動かしている最中のパーツを一時的に消す */
+  setCellVisible(cell, on) {
+    const node = this._cellNodes && this._cellNodes.get(cell);
+    if (node) node.visible = on;
+  }
+
   /** 2 点を結ぶレールのメッシュ（形状はスケールで使い回す） */
-  railNode(p0, p1) {
+  railNode(p0, p1, grade) {
     if (!this._railTpl) {
       const rod = new THREE.CylinderGeometry(ROD_R, ROD_R, 1, 10);
       rod.rotateZ(-Math.PI / 2);
@@ -608,6 +653,7 @@ export class View {
         const m = new THREE.Mesh(rod, this.M.rail(0x99a3ae));
         m.position.set(0, -ROD_DROP, s * ROD_SEP);
         m.castShadow = true;
+        m.userData.rod = true;
         holder.add(m);
       }
       const capGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.11, 10);
@@ -615,6 +661,8 @@ export class View {
     }
     const grp = new THREE.Group();
     const holder = this._railTpl.holder.clone();
+    const mat = this.railMaterial(grade);
+    holder.traverse((o) => { if (o.isMesh && o.userData.rod) o.material = mat; });
     const len = p0.distanceTo(p1);
     holder.scale.x = len;
     grp.add(holder);
@@ -646,13 +694,21 @@ export class View {
    * 画面座標から、盤面のセルと当たったオブジェクトを求める。
    * @returns {{cell:?object, rail:?object, q:number, r:number, point:THREE.Vector3}|null}
    */
-  pick(clientX, clientY) {
+  /**
+   * 画面の座標から、そこにあるものを調べる。
+   * @param {boolean} withRails レールも対象にするか（「けす」ときだけ true）
+   */
+  pick(clientX, clientY, withRails = false) {
     this.setNdc(clientX, clientY);
-    const hits = this._ray.intersectObjects(this._pickables, false);
+    let list = this._pickables;
+    if (withRails && this._railPickables) list = [...list, ...this._railPickables];
+    if (this._handle && this._handle.visible && this._handleHit) list = [this._handleHit, ...list];
+    const hits = this._ray.intersectObjects(list, false);
     const camPos = this.camera.position;
     let best = null, bestDist = Infinity;
     if (hits.length) {
       const h = hits[0];
+      if (h.object.userData.handle) return { handle: true, q: 0, r: 0, point: h.point };
       best = { cell: h.object.userData.cell || null, rail: h.object.userData.rail || null, point: h.point };
       bestDist = h.point.distanceTo(camPos);
     }
@@ -667,6 +723,46 @@ export class View {
       if (best.rail) return { ...best, q: best.rail.q1, r: best.rail.r1 };
     }
     return null;
+  }
+
+  /* ── たかさの とって（3D の中で直接つまむ） ── */
+
+  showHandle(cell) {
+    if (!this._handle) {
+      const g = new THREE.Group();
+      // パーツ本体を掴む操作と ぶつからないよう、じゅうぶん上に離して立てる。
+      // 下は細いガイド、上が つまむところ。
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.5, 8), this.M.handle);
+      stem.position.y = 0.85;
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 1.15, 10), this.M.handle);
+      rod.position.y = 2.15;
+      const grip = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 14), this.M.handle);
+      grip.position.y = 2.15;
+      const up = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.42, 12), this.M.handle);
+      up.position.y = 2.94;
+      const dn = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.42, 12), this.M.handle);
+      dn.position.y = 1.36;
+      dn.rotation.z = Math.PI;
+      // 指で掴みやすいように、見えない当たり判定（パーツより ずっと上だけ）
+      const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 2.3, 8), this.M.invisible);
+      hit.position.y = 2.2;
+      hit.userData.handle = true;
+      this._handleHit = hit;
+      g.add(stem, rod, grip, up, dn, hit);
+      this._handle = g;
+      this.helperGroup.add(g);
+    }
+    const [cx, cz] = cellCenter(cell.q, cell.r);
+    this._handle.position.set(cx, surfaceY(cell.level) + 0.1, cz);
+    this._handle.visible = true;
+  }
+
+  hideHandle() { if (this._handle) this._handle.visible = false; }
+
+  /** 指の下に とって があるか（パーツより手前にあるときだけ） */
+  hitHandle(x, y) {
+    const hit = this.pick(x, y);
+    return !!(hit && hit.handle);
   }
 
   /* ── つなげる あいて を光らせる ── */
@@ -693,6 +789,18 @@ export class View {
   }
 
   clearTargets() { this.targetGroup.clear(); }
+
+  /** 画面 1px が、注視点のあたりでワールド何単位にあたるか */
+  perPixel() {
+    const h = this.canvas.clientHeight || window.innerHeight;
+    const vFov = (this.camera.fov * Math.PI) / 180;
+    return (2 * this.cam.radius * Math.tan(vFov / 2)) / h;
+  }
+
+  /** 画面の縦移動量 → たかさ（レベル）の変化量 */
+  pxToLevels(dyPx) {
+    return (-dyPx * this.perPixel()) / Math.max(0.35, Math.sin(this.cam.phi)) / H;
+  }
 
   /* ── 画面のうち UI に隠れていない範囲 ── */
 

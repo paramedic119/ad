@@ -20,9 +20,9 @@
   --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
-  --dock-h: 236px;
+  --dock-h: 238px;   /* 起動後は実寸を測って上書きする */
 }
-body[data-mode="play"] { --dock-h: 148px; }
+body[data-mode="play"] { --dock-h: 136px; }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
@@ -110,36 +110,18 @@ body[data-mode="play"] #score { display: flex; }
 .q-act { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
 .q-act button { font-size: 12.5px; padding: 8px 12px; border-radius: 12px; }
 
-/* ── たかさスライダー ── */
-#lift {
-  position: fixed; right: 8px; z-index: 17;
-  top: calc(50% - 40px); transform: translateY(-50%);
-  display: none; flex-direction: column; align-items: center; gap: 6px;
-  padding: 8px 6px; border-radius: 22px;
-  background: var(--panel); border: 1px solid var(--line);
-  backdrop-filter: blur(12px); box-shadow: var(--shadow);
+/* ── ドラッグ中に指のそばに出るふきだし ── */
+#badge {
+  position: fixed; z-index: 30; display: none; pointer-events: none;
+  padding: 8px 14px; border-radius: 16px; font-size: 14px; line-height: 1.35;
+  white-space: pre-line; text-align: center;
+  background: rgba(10,15,22,.95); border: 2px solid var(--accent); color: #d8f2ff;
+  box-shadow: var(--shadow);
 }
-body[data-mode="build"] #lift { display: flex; }
-#lift.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255, 210, 90, .3), var(--shadow); }
-.lift-btn { width: 44px; height: 38px; border-radius: 12px; font-size: 15px; padding: 0; }
-#lift-track {
-  position: relative; width: 44px; height: 168px; border-radius: 14px;
-  background: rgba(0, 0, 0, .38); border: 1px solid var(--line); overflow: visible;
-  touch-action: none;
-}
-#lift-fill {
-  position: absolute; left: 3px; right: 3px; bottom: 3px; height: 0;
-  border-radius: 11px; background: linear-gradient(180deg, var(--accent), rgba(69, 200, 255, .35));
-  transition: height .1s;
-}
-#lift-knob {
-  position: absolute; left: 50%; width: 40px; height: 30px; margin-left: -20px; bottom: -15px;
-  border-radius: 11px; background: #eaf6ff; border: 2px solid var(--accent);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, .5); transition: bottom .1s; pointer-events: none;
-}
-#lift.sel #lift-knob { border-color: var(--gold); }
-#lift-cap { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.25; }
-#lift-cap b { display: block; font-size: 18px; color: var(--text); font-variant-numeric: tabular-nums; }
+#badge.show { display: block; }
+#badge.good { border-color: var(--go); color: #c6f7dc; }
+#badge.warn { border-color: var(--warn); color: #ffeab8; }
+#badge.bad { border-color: var(--bad); color: #ffd0d0; }
 
 /* ── ヒント ── */
 #hint {
@@ -186,6 +168,7 @@ body[data-mode="play"] #tray, body[data-mode="play"] #acts { display: none; }
   box-shadow: 0 0 0 2px rgba(69, 200, 255, .35);
 }
 .card.out { opacity: .34; }
+.card.lift { transform: scale(1.12); border-color: var(--accent); box-shadow: 0 10px 24px rgba(0,0,0,.55); opacity: .5; }
 
 /* アクション */
 #acts { display: flex; gap: 8px; }
@@ -297,13 +280,11 @@ body[data-mode="play"] #ballrow { display: flex; }
   #dock { left: 50%; right: auto; transform: translateX(-50%); width: 620px; border-radius: var(--r) var(--r) 0 0; }
   #hint { left: 50%; right: auto; transform: translateX(-50%); width: 560px; text-align: center; }
   #quest { left: 50%; right: auto; transform: translateX(-50%); width: 560px; }
-  #lift { right: max(14px, calc(50vw - 380px)); }
 }
 @media (max-height: 680px) {
   :root { --dock-h: 226px; }
   .card { height: 82px; width: 72px; }
   .card .ic { width: 34px; height: 34px; }
-  #lift-track { height: 128px; }
   .act { height: 52px; }
   .big, #b-swap { height: 56px; }
 }

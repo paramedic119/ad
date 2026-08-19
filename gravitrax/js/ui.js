@@ -8,7 +8,6 @@
  * ロジックは持たず、操作を on(...) のコールバックで通知する。
  */
 import { PARTS, RAIL_ORDER } from './parts.js';
-import { MAX_LEVEL } from './core.js';
 
 /* ─────────────── アイコン ─────────────── */
 
@@ -89,15 +88,9 @@ export class UI {
     this.quest = el('div'); this.quest.id = 'quest';
     b.appendChild(this.quest);
 
-    /* ── たかさスライダー（右はし） ── */
-    const lift = el('div'); lift.id = 'lift';
-    lift.innerHTML = `
-      <button class="lift-btn" id="lift-up" aria-label="たかく">▲</button>
-      <div id="lift-track"><div id="lift-fill"></div><div id="lift-knob"></div></div>
-      <button class="lift-btn" id="lift-down" aria-label="ひくく">▼</button>
-      <div id="lift-cap">たかさ<b id="lift-val">0</b></div>`;
-    b.appendChild(lift);
-    this.lift = lift;
+    /* ── ドラッグ中に指のそばに出るふきだし ── */
+    this.badge = el('div'); this.badge.id = 'badge';
+    b.appendChild(this.badge);
 
     /* ── ヒント ── */
     this.hint = el('div'); this.hint.id = 'hint';
@@ -110,7 +103,6 @@ export class UI {
       <div id="acts">
         <button class="act" data-a="undo"><i>↩</i><span>もどす</span></button>
         <button class="act" data-a="rotate"><i>🔄</i><span>まわす</span></button>
-        <button class="act" data-a="variant"><i>◆</i><span>かたち</span></button>
         <button class="act" data-a="erase"><i>🧹</i><span>けす</span></button>
       </div>
       <div id="ballrow">
@@ -134,6 +126,8 @@ export class UI {
     b.appendChild(this.modalBox);
 
     this.buildTray();
+    this.measureDock();
+    addEventListener('resize', () => this.measureDock());
 
     /* ── 配線 ── */
     g('b-help').onclick = () => this.emit('help');
@@ -145,8 +139,6 @@ export class UI {
     g('ball-down').onclick = () => this.emit('balls', -1);
     g('b-swap').onclick = () => this.emit('swapMode');
     g('b-go').onclick = () => this.emit('go');
-    g('lift-up').onclick = () => this.emit('levelStep', +1);
-    g('lift-down').onclick = () => this.emit('levelStep', -1);
     for (const btn of dock.querySelectorAll('.act')) {
       btn.onclick = () => this.emit(btn.dataset.a);
     }
@@ -156,10 +148,8 @@ export class UI {
       rotate: dock.querySelector('[data-a="rotate"]'),
       variant: dock.querySelector('[data-a="variant"]'),
       erase: dock.querySelector('[data-a="erase"]'),
-      liftVal: g('lift-val'), liftFill: g('lift-fill'), liftKnob: g('lift-knob'),
       ball: g('ball-val'), goal: g('s-goal'), total: g('s-total'), time: g('s-time'),
     };
-    this._wireLift(g('lift-track'));
   }
 
   buildTray() {
@@ -168,33 +158,64 @@ export class UI {
       const card = el('button', 'card');
       card.dataset.id = id;
       card.innerHTML = `<div class="ic">${iconFor(id)}</div><div class="nm">${labelFor(id)}</div><div class="ct"></div>`;
-      card.onclick = () => this.emit('pick', id);
+      this._wireCard(card, id);
       tray.appendChild(card);
       this.cards.set(id, card);
     }
   }
 
-  /** たかさスライダーを指でつまめるようにする */
-  _wireLift(track) {
-    const set = (e) => {
-      const r = track.getBoundingClientRect();
-      const t = 1 - (e.clientY - r.top) / r.height;
-      this.emit('level', Math.round(Math.max(0, Math.min(1, t)) * MAX_LEVEL));
+  /**
+   * カードは「つまんで ばんに はこぶ」もの。
+   * 指が動かないまま離したときだけ、ふつうの選択として扱う。
+   */
+  _wireCard(card, id) {
+    let on = false, moved = 0, sx = 0, sy = 0, dragging = false;
+    card.style.touchAction = 'none';
+    card.addEventListener('pointerdown', (e) => {
+      if (card.classList.contains('out')) { this.emit('pick', id); return; }
+      on = true; moved = 0; dragging = false; sx = e.clientX; sy = e.clientY;
+      card.setPointerCapture(e.pointerId);
+    });
+    card.addEventListener('pointermove', (e) => {
+      if (!on) return;
+      moved = Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy);
+      if (!dragging && moved > 10) {
+        dragging = true;
+        card.classList.add('lift');
+        this.emit('cardDragStart', id, e.clientX, e.clientY);
+      }
+      if (dragging) this.emit('cardDrag', e.clientX, e.clientY);
+    });
+    const end = (e) => {
+      if (!on) return;
+      on = false;
+      card.classList.remove('lift');
+      if (dragging) this.emit('cardDrop', e.clientX, e.clientY, e.type === 'pointercancel');
+      else this.emit('pick', id);
+      dragging = false;
     };
-    let on = false;
-    track.style.touchAction = 'none';
-    track.addEventListener('pointerdown', (e) => { on = true; track.setPointerCapture(e.pointerId); set(e); });
-    track.addEventListener('pointermove', (e) => { if (on) set(e); });
-    const off = () => { on = false; };
-    track.addEventListener('pointerup', off);
-    track.addEventListener('pointercancel', off);
+    card.addEventListener('pointerup', end);
+    card.addEventListener('pointercancel', end);
   }
+
+  /** 指のそばに出すふきだし */
+  showBadge(x, y, text, kind = '') {
+    this.badge.textContent = text;
+    this.badge.className = 'show ' + kind;
+    const w = this.badge.offsetWidth || 90;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2));
+    this.badge.style.left = left + 'px';
+    this.badge.style.top = Math.max(8, y - 74) + 'px';
+  }
+
+  hideBadge() { this.badge.className = ''; }
 
   /* ─────────────── 更新 ─────────────── */
 
   setMode(mode) {
     document.body.dataset.mode = mode;
     this.btn.swap.innerHTML = mode === 'build' ? '<i>▶</i><span>ころがす</span>' : '<i>🔧</i><span>つくる</span>';
+    if (mode !== 'build') this.hideBadge();
     if (mode === 'build') {
       this.btn.go.className = 'big go';
       this.btn.go.innerHTML = '<i>▶</i>ころがす！';
@@ -203,6 +224,15 @@ export class UI {
       this.btn.go.innerHTML = '<i>▶</i>スタート';
     }
     if (mode !== 'build') this.setSelected(null);
+    this.measureDock();
+  }
+
+  /** ドックの高さを実際に測って CSS に伝える（ヒントが隠れないように） */
+  measureDock() {
+    requestAnimationFrame(() => {
+      const h = this.dock ? this.dock.offsetHeight : 0;
+      if (h) document.documentElement.style.setProperty('--dock-h', h + 'px');
+    });
   }
 
   setRunning(on) {
@@ -231,19 +261,9 @@ export class UI {
     }
   }
 
-  setLevel(n, forSelected = false) {
-    this.btn.liftVal.textContent = n;
-    const pct = (n / MAX_LEVEL) * 100;
-    this.btn.liftFill.style.height = pct + '%';
-    this.btn.liftKnob.style.bottom = `calc(${pct}% - 15px)`;
-    this.lift.classList.toggle('sel', forSelected);
-  }
-
   setSelected(cell) {
     this._sel = cell || null;
-    const has = !!cell;
-    this.btn.rotate.disabled = !has;
-    this.btn.variant.disabled = !has || PARTS[cell.type].variants.length < 2;
+    this.btn.rotate.disabled = !cell;
   }
 
   setHistory(canUndo) { this.btn.undo.disabled = !canUndo; }
