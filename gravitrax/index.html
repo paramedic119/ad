@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#151c25">
+<meta name="description" content="GraviTrax PRO スターターセットをモデルにした 3D 立体コースビルダー。ブラウザだけで玉の道を組み立てて転がせます。">
+<title>GraviTrax PRO 3D — 立体コースビルダー</title>
+<link rel="stylesheet" href="./css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='11' fill='%23dfe6ee'/><circle cx='12' cy='12' r='3.4' fill='%23ffffff'/></svg>">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-ball"></div>
+    <p>コースを読み込んでいます…</p>
+  </div>
+</div>
+
+<noscript><div class="fatal">このゲームを遊ぶには JavaScript を有効にしてください。</div></noscript>
+
+<script type="module">
+  import { start } from './js/main.js';
+  start().catch((e) => {
+    console.error(e);
+    document.getElementById('boot').innerHTML =
+      '<div class="boot-inner"><p class="err">読み込みに失敗しました</p><pre>' +
+      String(e && e.message || e).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) +
+      '</pre></div>';
+  });
+</script>
+</body>
+</html>
