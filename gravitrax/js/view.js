@@ -112,6 +112,7 @@ export class OrbitCam {
     this._mode = null;
     this._moved = 0;
     this._pinch = 0;
+    this.userPanned = false;
     this._install();
     this.update();
   }
@@ -201,6 +202,7 @@ export class OrbitCam {
   }
 
   _pan(dx, dy) {
+    this.userPanned = true;
     const scale = this.radius * 0.0016;
     const right = new THREE.Vector3(-Math.sin(this.theta), 0, Math.cos(this.theta));
     const fwd = new THREE.Vector3(-Math.cos(this.theta), 0, -Math.sin(this.theta));
@@ -212,17 +214,100 @@ export class OrbitCam {
   }
 }
 
+/* ─────────────── キラキラ（パーティクル） ─────────────── */
+
+function dotTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.85)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+class Particles {
+  constructor(max = 420) {
+    this.max = max;
+    this.head = 0;
+    this.pos = new Float32Array(max * 3);
+    this.vel = new Float32Array(max * 3);
+    this.col = new Float32Array(max * 3);
+    this.base = new Float32Array(max * 3);
+    this.life = new Float32Array(max);
+    this.full = new Float32Array(max);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+    this.geo = geo;
+    this.points = new THREE.Points(geo, new THREE.PointsMaterial({
+      size: 0.34, vertexColors: true, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, map: dotTexture(), sizeAttenuation: true,
+    }));
+    this.points.frustumCulled = false;
+    this.reset();
+  }
+
+  reset() {
+    this.life.fill(0);
+    this.pos.fill(0);
+    this.col.fill(0);
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.color.needsUpdate = true;
+  }
+
+  spawn(p, v, colorHex, life) {
+    const i = this.head; this.head = (this.head + 1) % this.max;
+    const o = i * 3;
+    this.pos[o] = p.x; this.pos[o + 1] = p.y; this.pos[o + 2] = p.z;
+    this.vel[o] = v.x; this.vel[o + 1] = v.y; this.vel[o + 2] = v.z;
+    const c = _pc.setHex(colorHex);
+    this.base[o] = c.r; this.base[o + 1] = c.g; this.base[o + 2] = c.b;
+    this.life[i] = life; this.full[i] = life;
+  }
+
+  update(dt) {
+    let any = false;
+    for (let i = 0; i < this.max; i++) {
+      if (this.life[i] <= 0) continue;
+      any = true;
+      this.life[i] -= dt;
+      const o = i * 3;
+      const k = Math.max(0, this.life[i] / this.full[i]);
+      this.vel[o + 1] -= 16 * dt;
+      this.pos[o] += this.vel[o] * dt;
+      this.pos[o + 1] += this.vel[o + 1] * dt;
+      this.pos[o + 2] += this.vel[o + 2] * dt;
+      this.col[o] = this.base[o] * k;
+      this.col[o + 1] = this.base[o + 1] * k;
+      this.col[o + 2] = this.base[o + 2] * k;
+      if (this.life[i] <= 0) { this.col[o] = this.col[o + 1] = this.col[o + 2] = 0; }
+    }
+    if (any) {
+      this.geo.attributes.position.needsUpdate = true;
+      this.geo.attributes.color.needsUpdate = true;
+    }
+  }
+}
+
+const _follow = new THREE.Vector3();
+const _pv = new THREE.Vector3();
+const _pc = new THREE.Color();
+
 /* ─────────────── ビュー本体 ─────────────── */
 
 export class View {
   constructor(canvas) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.16;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
@@ -238,7 +323,7 @@ export class View {
     this.scene.environmentIntensity = 0.85;
     pmrem.dispose();
 
-    const hemi = new THREE.HemisphereLight(0xcfe2ff, 0x2a3038, 0.55);
+    const hemi = new THREE.HemisphereLight(0xd8e9ff, 0x2f3742, 0.72);
     this.scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xfff3e0, 2.0);
     sun.position.set(9, 17, 7);
@@ -260,7 +345,11 @@ export class View {
     this.courseGroup = new THREE.Group();
     this.ballGroup = new THREE.Group();
     this.helperGroup = new THREE.Group();
-    this.scene.add(this.boardGroup, this.courseGroup, this.ballGroup, this.helperGroup);
+    this.targetGroup = new THREE.Group();
+    this.scene.add(this.boardGroup, this.courseGroup, this.ballGroup, this.helperGroup, this.targetGroup);
+    this.particles = new Particles();
+    this.scene.add(this.particles.points);
+    this.followEnabled = true;
 
     this._templates = new Map();
     this._pickables = [];
@@ -278,7 +367,7 @@ export class View {
     this.quality = q;
     const low = q === 'low';
     this.renderer.shadowMap.enabled = !low;
-    this.renderer.setPixelRatio(low ? 1 : Math.min(devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(low ? 1 : Math.min(devicePixelRatio || 1, 2.5));
     this.scene.traverse((o) => { if (o.isMesh && o.material) o.material.needsUpdate = true; });
     this.resize();
   }
@@ -512,7 +601,7 @@ export class View {
   /** 2 点を結ぶレールのメッシュ（形状はスケールで使い回す） */
   railNode(p0, p1) {
     if (!this._railTpl) {
-      const rod = new THREE.CylinderGeometry(ROD_R, ROD_R, 1, 7);
+      const rod = new THREE.CylinderGeometry(ROD_R, ROD_R, 1, 10);
       rod.rotateZ(-Math.PI / 2);
       const holder = new THREE.Group();
       for (const s of [1, -1]) {
@@ -580,10 +669,103 @@ export class View {
     return null;
   }
 
+  /* ── つなげる あいて を光らせる ── */
+
+  showTargets(cells) {
+    this.clearTargets();
+    if (!this._targetGeo) {
+      this._targetGeo = new THREE.TorusGeometry(HEX_R * 0.86, 0.10, 10, 28);
+      this._targetGeo.rotateX(Math.PI / 2);
+      this._targetMat = new THREE.MeshBasicMaterial({ color: 0xffd25a, transparent: true, opacity: 0.95 });
+      this._arrowGeo = new THREE.ConeGeometry(0.34, 0.62, 12);
+      this._arrowGeo.rotateX(Math.PI);
+    }
+    for (const c of cells) {
+      const [cx, cz] = cellCenter(c.q, c.r);
+      const y = surfaceY(c.level);
+      const ring = new THREE.Mesh(this._targetGeo, this._targetMat);
+      ring.position.set(cx, y + 0.08, cz);
+      const arrow = new THREE.Mesh(this._arrowGeo, this._targetMat);
+      arrow.position.set(cx, y + 1.15, cz);
+      this.targetGroup.add(ring, arrow);
+    }
+    this._targetT = 0;
+  }
+
+  clearTargets() { this.targetGroup.clear(); }
+
+  /* ── 画面のうち UI に隠れていない範囲 ── */
+
+  /**
+   * 下のドックと上のバーで隠れるぶんを測り、
+   *  visFrac : 見えている高さの割合
+   *  shiftY  : コースを見える範囲の中央に寄せるための注視点の上下ずらし量（ワールド単位）
+   * を返す。これをしないと、スマホではコースの下半分がドックの裏に隠れてしまう。
+   */
+  viewport() {
+    const h = this.canvas.clientHeight || window.innerHeight;
+    const dock = document.getElementById('dock');
+    const hdr = document.getElementById('hdr');
+    const quest = document.getElementById('quest');
+    const top = (hdr ? hdr.offsetHeight : 56) + (quest && quest.classList.contains('show') ? quest.offsetHeight + 8 : 0) + 8;
+    const bottom = h - (dock ? dock.offsetHeight : 0) - 46;   // ヒント表示のぶんも空ける
+    const visFrac = Math.max(0.32, (bottom - top) / h);
+    const shiftPx = (top + bottom) / 2 - h / 2;
+    const vFov = (this.camera.fov * Math.PI) / 180;
+    const perPx = (2 * this.cam.radius * Math.tan(vFov / 2)) / h;
+    const shiftY = (shiftPx * perPx) / Math.max(0.35, Math.sin(this.cam.phi));
+    return { visFrac, shiftY, top, bottom };
+  }
+
+  /* ── ボールを おいかける ── */
+
+  followBall(p, dt) {
+    if (!this.followEnabled || this.cam.userPanned) return;
+    const k = 1 - Math.exp(-3.2 * dt);
+    _follow.set(p.x, p.y + 0.5 + this.viewport().shiftY, p.z);
+    this.cam.target.lerp(_follow, k);
+    this.cam.update();
+  }
+
+  /* ── キラキラ（ゴールの お祝いと ボールの あと） ── */
+
+  burstAt(pos, color = 0xffd25a) {
+    for (let i = 0; i < 46; i++) {
+      const a = (i / 46) * Math.PI * 2 + Math.random();
+      const up = 6 + Math.random() * 9;
+      const r = 3 + Math.random() * 6;
+      this.particles.spawn(pos,
+        _pv.set(Math.cos(a) * r, up, Math.sin(a) * r),
+        color, 0.75 + Math.random() * 0.5);
+    }
+  }
+
+  sparkle(pos, color = 0xbfe6ff) {
+    this.particles.spawn(pos, _pv.set(0, 0.4, 0), color, 0.28);
+  }
+
+  clearBurst() { this.particles.reset(); }
+
+  /** 毎フレーム呼ぶ（アニメーション） */
+  update(dt) {
+    this.particles.update(dt);
+    if (this.targetGroup.children.length) {
+      this._targetT = (this._targetT || 0) + dt;
+      const s = 1 + Math.sin(this._targetT * 5) * 0.12;
+      const dy = Math.sin(this._targetT * 5) * 0.12;
+      for (let i = 0; i < this.targetGroup.children.length; i++) {
+        const o = this.targetGroup.children[i];
+        if (i % 2 === 0) o.scale.setScalar(s);
+        else o.position.y += (dy - (o.userData.dy || 0));
+        if (i % 2 === 1) o.userData.dy = dy;
+      }
+    }
+  }
+
   /* ── ボール ── */
 
   makeBall(color = 0xe8ecf1) {
-    if (!this._ballGeo) this._ballGeo = new THREE.SphereGeometry(BALL_R, 22, 16);
+    if (!this._ballGeo) this._ballGeo = new THREE.SphereGeometry(BALL_R, 28, 20);
     if (!this._ballMats) this._ballMats = new Map();
     if (!this._ballMats.has(color)) {
       this._ballMats.set(color, new THREE.MeshStandardMaterial({ color, roughness: 0.12, metalness: 1.0 }));

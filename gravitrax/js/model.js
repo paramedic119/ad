@@ -13,6 +13,15 @@ import { PARTS, PART_ORDER, RAILS, RAIL_BY_SPAN, SET_INVENTORY } from './parts.j
 
 const TYPE_IDX = PART_ORDER.slice();
 
+/** その「種類・形・向き」で使えるポート方向の一覧 */
+export function portsFor(type, cfg, rot) {
+  const out = new Set();
+  for (const p of PARTS[type].localPaths(cfg)) {
+    for (const e of p.ends) if (e.t === 'port') out.add((e.d + rot) % 6);
+  }
+  return [...out];
+}
+
 /** 同じコラムでパーツ同士に必要な高さの間隔（ボールが通れるだけの隙間） */
 export const MIN_GAP = 5;
 
@@ -114,12 +123,38 @@ export class Model {
   }
 
   /** そのパーツが実際に使うポート方向（回転込み） */
-  portsOf(cell) {
-    const out = new Set();
-    for (const p of PARTS[cell.type].localPaths(cell.cfg)) {
-      for (const e of p.ends) if (e.t === 'port') out.add((e.d + cell.rot) % 6);
+  portsOf(cell) { return portsFor(cell.type, cell.cfg, cell.rot); }
+
+  /** そのレールがこのパーツのどの向きに繋がっているか */
+  dirOfRail(rail, cell) { return rail.a === cell ? rail.d1 : rail.d2; }
+
+  /**
+   * dirs のすべての向きに出入口が来るような「形」と「向き」を探す。
+   * 見つかったら適用して true。見つからなければ何も変えずに false。
+   * これのおかげで、遊ぶ人はパーツの向きを自分で合わせなくてよくなる。
+   */
+  fitPorts(cell, dirs, apply = true) {
+    if (dirs.every((d) => portsFor(cell.type, cell.cfg, cell.rot).includes(d))) return true;
+    const nCfg = PARTS[cell.type].variants.length;
+    const cfgs = [cell.cfg];
+    for (let c = 0; c < nCfg; c++) if (c !== cell.cfg) cfgs.push(c);
+    for (const cfg of cfgs) {
+      for (let i = 0; i < 6; i++) {                 // 今の向きに近いものから試す
+        const rot = (cell.rot + i) % 6;
+        if (dirs.every((d) => portsFor(cell.type, cfg, rot).includes(d))) {
+          if (apply) { cell.cfg = cfg; cell.rot = rot; }
+          return true;
+        }
+      }
     }
-    return [...out];
+    return false;
+  }
+
+  /** 今ついているレールの向き＋追加したい向き */
+  _needDirs(cell, extra) {
+    const need = this.railsOf(cell).map((l) => this.dirOfRail(l, cell));
+    if (extra != null) need.push(extra);
+    return need;
   }
 
   /* ── レール ───────────────────────────── */
@@ -157,6 +192,43 @@ export class Model {
     };
     this.rails.push(rail);
     return { ok: true, rail };
+  }
+
+  /** a と b を繋げられるか（何も変えずに調べるだけ） */
+  probeRail(a, b) {
+    if (!a || !b || a === b) return { ok: false, why: 'ちがう パーツ を えらんでね' };
+    const line = lineBetween(a.q, a.r, b.q, b.r);
+    if (!line) return { ok: false, why: 'まっすぐ ならんだ ばしょ どうし だけ つなげるよ' };
+    if (line.span < 2 || line.span > 4) {
+      return { ok: false, why: line.span < 2 ? 'ちかすぎるよ。ひとつ あけてね' : 'とおすぎるよ' };
+    }
+    const d1 = line.dir, d2 = opposite(d1);
+    if (this.railAtPort(a, d1) || this.railAtPort(b, d2)) {
+      return { ok: false, why: 'そこには もう レールが ついてるよ' };
+    }
+    if (!this.fitPorts(a, this._needDirs(a, d1), false) ||
+        !this.fitPorts(b, this._needDirs(b, d2), false)) {
+      return { ok: false, why: 'この パーツ には これいじょう つなげないよ' };
+    }
+    return { ok: true, d1, d2, span: line.span, type: RAIL_BY_SPAN[line.span] };
+  }
+
+  /** 向きを自動で合わせながらレールを張る */
+  smartRail(a, b) {
+    const chk = this.probeRail(a, b);
+    if (!chk.ok) return chk;
+    this.fitPorts(a, this._needDirs(a, chk.d1));
+    this.fitPorts(b, this._needDirs(b, chk.d2));
+    return this.addRail(a, b);
+  }
+
+  /** そのパーツから繋げられる相手を全部あつめる（光らせて教えるため） */
+  railTargets(a) {
+    const out = [];
+    for (const b of this.cells.values()) {
+      if (b !== a && this.probeRail(a, b).ok) out.push(b);
+    }
+    return out;
   }
 
   removeRail(rail) {

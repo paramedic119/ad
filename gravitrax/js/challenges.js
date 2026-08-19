@@ -14,12 +14,12 @@ const lock = (m, q, r, type, cfg, rot, level) =>
 export const CHALLENGES = [
   {
     id: 'first',
-    name: 'はじめの一歩',
-    desc: 'スターターとゴールをレールでつないでみよう。まずはまっすぐに。',
-    goalText: 'ボールを 1 個ゴールへ',
+    name: 'はじめの いっぽ',
+    desc: 'スタートと ゴールを レールで つないでみよう。まずは まっすぐ。',
+    goalText: 'ボールを 1こ ゴールへ',
     balls: 1, need: 1,
     limits: { curve: 3, railS: 2, railM: 2, railL: 2, height: 40 },
-    hint: '高いところから低いところへ、坂道になるように高さを決めるのがコツ。',
+    hint: 'たかい ところから ひくい ところへ。さかみちに なるように たかさを きめよう。',
     build(m) {
       m.boardRadius = 4;
       lock(m, 0, -3, 'starter', 0, 1, 8);
@@ -33,12 +33,12 @@ export const CHALLENGES = [
   },
   {
     id: 'turn',
-    name: 'カーブでまがれ',
-    desc: 'ゴールはまっすぐの先にはない。カーブで向きを変えよう。',
-    goalText: 'ボールを 1 個ゴールへ',
+    name: 'カーブで まがれ',
+    desc: 'ゴールは まっすぐの さきに ないよ。とちゅうで まがろう。',
+    goalText: 'ボールを 1こ ゴールへ',
     balls: 1, need: 1,
     limits: { curve: 3, railS: 3, railM: 2, railL: 2, height: 40 },
-    hint: 'パーツを選んで T キー（形状）を押すと、曲がり方を変えられる。',
+    hint: 'レールで つなげば、まがりかたは じどうで きまるよ。',
     build(m) {
       m.boardRadius = 5;
       lock(m, 0, -4, 'starter', 0, 1, 14);
@@ -52,12 +52,12 @@ export const CHALLENGES = [
   },
   {
     id: 'jump',
-    name: 'ジャンプでねらえ',
-    desc: 'ゴールまでレールは届かない。空中を飛ばして直接ねらおう。',
-    goalText: 'ボールを 1 個ゴールへ',
+    name: 'ジャンプで ねらえ',
+    desc: 'ゴールまで レールが とどかない。そらを とばして ねらおう。',
+    goalText: 'ボールを 1こ ゴールへ',
     balls: 1, need: 1,
     limits: { curve: 2, railS: 2, railM: 2, height: 40 },
-    hint: 'レールの先端から飛び出したボールは放物線をえがく。高さと勢いを調整しよう。',
+    hint: 'レールの さきから とび出す ボールは カーブを えがく。たかさを かえて ちょうせつ しよう。',
     build(m) {
       m.boardRadius = 4;
       lock(m, 0, -4, 'starter', 0, 1, 14);
@@ -71,12 +71,12 @@ export const CHALLENGES = [
   },
   {
     id: 'catch',
-    name: 'キャッチャーで受けとめろ',
-    desc: 'フリーフォールで落としたボールを、真下のキャッチャーで受けてゴールへ。',
-    goalText: 'ボールを 1 個ゴールへ',
+    name: 'うけざらで うけとめろ',
+    desc: 'おとしあなで おとした ボールを、まっすぐ 下の うけざらで うけとめて ゴールへ。',
+    goalText: 'ボールを 1こ ゴールへ',
     balls: 1, need: 1,
     limits: { freefall: 1, catcher: 1, curve: 2, railS: 2, railM: 2, height: 45 },
-    hint: '同じマスでも高さがちがえばパーツを重ねて置ける。フリーフォールの真下にキャッチャーを置こう。',
+    hint: 'おなじ ばしょでも たかさが ちがえば かさねて おけるよ。おとしあなの 下に うけざらを おこう。',
     build(m) {
       m.boardRadius = 4;
       lock(m, 0, -3, 'starter', 0, 1, 16);
@@ -91,12 +91,12 @@ export const CHALLENGES = [
   },
   {
     id: 'vortex',
-    name: 'うずまきをくぐれ',
-    desc: 'ボルテックスの中をぐるぐる回してから、下でキャッチしてゴールへ。',
-    goalText: 'ボールを 1 個ゴールへ',
+    name: 'うずまきを くぐれ',
+    desc: 'うずまきの なかを ぐるぐる まわしてから、下で うけとめて ゴールへ。',
+    goalText: 'ボールを 1こ ゴールへ',
     balls: 1, need: 1,
     limits: { vortex: 1, catcher: 1, curve: 2, railS: 2, railM: 2, height: 45 },
-    hint: 'ボルテックスはボールを真下に落とす。落ちる先を用意しておこう。',
+    hint: 'うずまきは ボールを まっすぐ 下に おとすよ。おちる さきを ようい しておこう。',
     build(m) {
       m.boardRadius = 4;
       lock(m, 0, -3, 'starter', 0, 1, 14);
@@ -111,12 +111,12 @@ export const CHALLENGES = [
   },
   {
     id: 'cannon',
-    name: 'キャノンで打ち上げろ',
-    desc: 'ゴールはスタートより高い場所にある。マグネティックキャノンの出番だ。',
-    goalText: 'ボールを 2 個ゴールへ',
+    name: 'キャノンで うちあげろ',
+    desc: 'ゴールが スタートより たかい ところに ある！ キャノンの でばんだ。',
+    goalText: 'ボールを 2こ ゴールへ',
     balls: 2, need: 2,
     limits: { cannon: 1, curve: 2, railS: 2, railM: 2, railL: 2, height: 30 },
-    hint: 'キャノンに飛び込んだボールが、反対側のボールを勢いよく撃ち出す。上り坂のレールを繋ごう。',
+    hint: 'キャノンに とびこんだ ボールが、はんたいがわの ボールを うちだす。のぼりざかの レールを つなごう。',
     build(m) {
       m.boardRadius = 5;
       lock(m, 3, 0, 'starter', 0, 3, 8);
@@ -130,12 +130,12 @@ export const CHALLENGES = [
   },
   {
     id: 'split',
-    name: 'ふたてに分けろ',
-    desc: '振り分けパーツはボールが来るたびに出口を交互に変える。半分をゴールへ導こう。',
-    goalText: '4 個のうち 2 個以上をゴールへ',
+    name: 'ふたてに わけろ',
+    desc: 'わかれみちは、ボールが くるたび でぐちを こうごに かえるよ。はんぶんを ゴールへ みちびこう。',
+    goalText: '4こ のうち 2こ いじょうを ゴールへ',
     balls: 4, need: 2,
     limits: { splitter: 1, curve: 3, railS: 3, railM: 3, height: 40 },
-    hint: 'まず 1 本だけ繋いでみよう。交互に振り分けられるので、半分は別の方へ行く。',
+    hint: 'まずは 1ぽんだけ つないでみよう。こうごに わかれるから、はんぶんは べつの ほうへ いくよ。',
     build(m) {
       m.boardRadius = 5;
       lock(m, 0, -3, 'starter', 0, 1, 12);
@@ -149,12 +149,12 @@ export const CHALLENGES = [
   },
   {
     id: 'all6',
-    name: '6 個すべてゴールへ',
-    desc: 'セットに入っているボール 6 個を、1 個も落とさずゴールへ運ぼう。',
-    goalText: 'ボールを 6 個ゴールへ',
+    name: '6こ ぜんぶ ゴールへ',
+    desc: 'ボール 6こを、1こも おとさずに ゴールへ はこぼう。',
+    goalText: 'ボールを 6こ ゴールへ',
     balls: 6, need: 6,
     limits: { curve: 8, cross: 2, splitter: 2, railS: 6, railM: 4, railL: 3, height: 60 },
-    hint: 'ボールどうしはぶつかる。詰まらないように、ゆるやかで長い下り坂を作ろう。',
+    hint: 'ボールどうしは ぶつかるよ。つまらないように、ゆるやかで ながい くだりざかを つくろう。',
     build(m) {
       m.boardRadius = 5;
       lock(m, 0, -4, 'starter', 0, 1, 16);
