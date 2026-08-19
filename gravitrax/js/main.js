@@ -29,11 +29,9 @@ class App {
     this.sfx = new Sfx();
     this.mode = 'build';
     this.tool = 'curve';
-    this.buildLevel = 0;
-    this.buildRot = 0;
-    this.buildCfg = 0;
     this.selected = null;
-    this.railFrom = null;
+    this.targets = [];
+    this.drag = null;
     this.eraseMode = false;
     this.challenge = null;
     this.cleared = new Set(readJSON(LS.cleared, []));
@@ -64,7 +62,6 @@ class App {
     this.ui.setBalls(this.model.ballCount);
     this.ui.setSound(this.soundOn);
     this.sfx.setEnabled(this.soundOn);
-    this.setLevel(0);
     this.pick('curve', true);
 
     if (!readJSON(LS.seen, false)) { this.showHelp(); writeJSON(LS.seen, true); }
@@ -99,10 +96,10 @@ class App {
   wireUI() {
     const ui = this.ui;
     ui.on('pick', (id) => this.pick(id));
-    ui.on('level', (v) => this.setLevel(v));
-    ui.on('levelStep', (d) => this.setLevel(this.liftValue + d));
+    ui.on('cardDragStart', (id, x, y) => this.startPlaceDrag(id, x, y));
+    ui.on('cardDrag', (x, y) => this.updateDrag(x, y));
+    ui.on('cardDrop', (x, y, cancel) => this.endDrag(x, y, cancel));
     ui.on('rotate', () => this.rotate(1));
-    ui.on('variant', () => this.variant(1));
     ui.on('undo', () => this.undo());
     ui.on('erase', () => this.toggleErase());
     ui.on('go', () => this.onGo());
@@ -120,8 +117,13 @@ class App {
   }
 
   wireInput() {
-    this.view.cam.onTap = (x, y) => this.onTap(x, y);
-    this.view.cam.onHover = (x, y) => this.onHover(x, y);
+    const cam = this.view.cam;
+    cam.onTap = (x, y) => this.onTap(x, y);
+    cam.onHover = (x, y) => this.onHover(x, y);
+    cam.hitTest = (x, y) => this.canGrab(x, y);
+    cam.onDragStart = (x, y) => this.startSceneDrag(x, y);
+    cam.onDrag = (x, y) => this.updateDrag(x, y);
+    cam.onDragEnd = (x, y, cancel) => this.endDrag(x, y, cancel);
     const unlock = () => { this.sfx.unlock(); this.sfx.setEnabled(this.soundOn); };
     addEventListener('pointerdown', unlock, { once: true });
     addEventListener('keydown', (e) => this.onKey(e));
@@ -137,8 +139,10 @@ class App {
     this.view.hideGhost();
     this.view.hideHover();
     this.view.clearTargets();
+    this.view.hideHandle();
+    this.ui.hideBadge();
+    this.drag = null;
     this.select(null);
-    this.railFrom = null;
     this.eraseMode = false;
     this.ui.setTool(this.tool);
     if (mode === 'play') {
@@ -169,160 +173,282 @@ class App {
 
   pick(id, silent = false) {
     this.eraseMode = false;
-    this.tool = id;
-    this.railFrom = null;
-    this.view.clearTargets();
-    if (PARTS[id]) this.buildCfg = clamp(this.buildCfg, 0, PARTS[id].variants.length - 1);
-    this.ui.setTool(this.tool);
-    this.select(null);
+    this.tool = PARTS[id] ? id : null;
+    this.ui.setTool(id);
     this.updateHint();
     if (!silent) { this.sfx.play('tap'); buzz(BUZZ.tap); }
+    if (id === 'rail') {
+      this.ui.toast('パーツを タップすると、つなげる あいてが 光るよ');
+      this.ui.setTool(null);
+    } else if (PARTS[id]) {
+      this.hint(`「${PARTS[id].short}」の カードを つまんで ばんに はこんでね`, 'pick');
+    }
   }
 
   toggleErase() {
     if (this.selected) return this.deleteSelected();
     this.eraseMode = !this.eraseMode;
-    this.railFrom = null;
-    this.view.clearTargets();
     this.ui.setTool(this.eraseMode ? 'erase' : this.tool);
+    if (this.eraseMode) this.select(null);
     this.updateHint();
     this.sfx.play('tap');
   }
 
-  /** スライダーが今しめしている値 */
-  get liftValue() { return this.selected ? this.selected.level : this.buildLevel; }
-
-  setLevel(v) {
-    const n = clamp(Math.round(v), 0, MAX_LEVEL);
-    if (this.selected) {
-      if (n !== this.selected.level) {
-        if (!this._levelDrag) { this.history.push(this.model); this._levelDrag = true; }
-        if (this.model.setLevel(this.selected, n)) {
-          this.buildLevel = n;
-          this.refresh();
-          this.view.showSelect(this.selected.q, this.selected.r, this.selected.level);
-          this.sfx.play('tap');
-        }
-      }
-      clearTimeout(this._levelTimer);
-      this._levelTimer = setTimeout(() => { this._levelDrag = false; }, 500);
-    } else {
-      this.buildLevel = n;
-    }
-    this.ui.setLevel(this.liftValue, !!this.selected);
-  }
+  /* ── えらぶ ── */
 
   select(cell) {
     this.selected = cell || null;
     this.ui.setSelected(this.selected);
     if (this.selected) {
       this.view.showSelect(this.selected.q, this.selected.r, this.selected.level);
-      this.buildLevel = this.selected.level;
-    } else this.view.hideSelect();
-    this.ui.setLevel(this.liftValue, !!this.selected);
+      this.view.showHandle(this.selected);
+      this.targets = this.model.railTargets(this.selected);
+      this.view.showTargets(this.targets);
+    } else {
+      this.view.hideSelect();
+      this.view.hideHandle();
+      this.view.clearTargets();
+      this.targets = [];
+    }
     this.updateHint();
   }
 
   hint(text, kind = '') {
     this.ui.setHint(text, kind);
     clearTimeout(this._hintTimer);
-    // ころがしている あいだは、じゃまに ならないよう すこしで 消す
     if (this.mode === 'play') this._hintTimer = setTimeout(() => this.ui.setHint(''), 3200);
   }
 
   updateHint() {
     if (this.mode === 'play') return;
-    if (this.eraseMode) return this.hint('けしたい パーツを タップしてね', 'pick');
-    if (this.tool === 'rail') {
-      return this.hint(this.railFrom
-        ? 'ひかっている パーツを タップ！'
-        : 'つなぎたい パーツを タップしてね', 'pick');
-    }
+    if (this.eraseMode) return this.hint('けしたい パーツや レールを タップしてね', 'pick');
     if (this.selected) {
-      return this.hint(`みぎの スライダーで「${PARTS[this.selected.type].short}」の たかさを かえられるよ`);
+      if (this.targets && this.targets.length) {
+        return this.hint('光っている パーツを タップ！ レールで つながるよ', 'pick');
+      }
+      return this.hint('金いろの とってを つまむと たかさが かわるよ');
     }
-    const name = PARTS[this.tool] ? PARTS[this.tool].short : '';
-    this.hint(`「${name}」を タップした ばしょに おくよ`);
+    this.hint('したの カードを つまんで ばんに はこんでね');
   }
 
-  onHover(x, y) {
-    if (this.mode !== 'build' || this.eraseMode || this.tool === 'rail') { this.view.hideGhost(); return; }
+  /* ── 指でつまむ ── */
+
+  /** 指の下に掴めるものがあるか（カメラを回すか、掴むかの分かれ道） */
+  canGrab(x, y) {
+    if (this.mode !== 'build' || this.eraseMode) return false;
     const hit = this.view.pick(x, y);
-    if (!hit || !this.model.onBoard(hit.q, hit.r)) { this.view.hideHover(); this.view.hideGhost(); return; }
-    this.view.showHover(hit.q, hit.r, hit.cell ? hit.cell.level : null);
-    if (PARTS[this.tool]) {
-      const ok = this.model.canPlace(hit.q, hit.r, this.buildLevel).ok && this.stockLeft(this.tool) > 0;
-      this.view.showGhost(this.tool, this.buildCfg, this.buildRot, hit.q, hit.r, this.buildLevel, ok);
+    if (!hit) return false;
+    if (hit.handle) return !!this.selected;
+    return !!(hit.cell && !hit.cell.locked);
+  }
+
+  /** ばんの中のものを掴みはじめた */
+  startSceneDrag(x, y) {
+    const probe = this.view.pick(x, y);
+    if (this.selected && probe && probe.handle) {
+      this.history.push(this.model);
+      this.drag = { kind: 'height', cell: this.selected, startLevel: this.selected.level, startY: y };
+      this.view.hideHandle();
+      this.view.clearTargets();
+      this.sfx.play('tap');
+      return;
     }
-  }
-
-  onTap(x, y) {
-    if (this.mode !== 'build') return;
-    const hit = this.view.pick(x, y);
-    if (!hit || !this.model.onBoard(hit.q, hit.r)) { this.select(null); return; }
-    if (this.eraseMode) return this.eraseAt(hit);
-    if (this.tool === 'rail') return this.railAt(hit);
-    if (PARTS[this.tool] && this.model.canPlace(hit.q, hit.r, this.buildLevel).ok) return this.placeAt(hit);
-    if (hit.cell) { this.select(hit.cell); this.sfx.play('tap'); buzz(BUZZ.tap); return; }
-    this.select(null);
-  }
-
-  stockLeft(id) {
-    if (id === 'rail') {
-      return RAIL_ORDER.reduce((a, r) => a + this.stockLeft(r), 0);
-    }
-    if (!this.limits || this.limits[id] == null) return Infinity;
-    return this.limits[id] - (this.model.usage()[id] || 0);
-  }
-
-  placeAt(hit) {
-    const type = this.tool;
-    if (this.stockLeft(type) <= 0) return this.nope(`${PARTS[type].short}は もう ぜんぶ つかったよ`);
-    const budget = this.limits && this.limits.height != null
-      ? this.limits.height - this.model.usage().height : Infinity;
-    if (this.buildLevel > budget) return this.nope('たかさの ざいりょうが たりないよ');
+    if (!probe || !probe.cell || probe.cell.locked) return;
     this.history.push(this.model);
-    const cell = this.model.setPart(hit.q, hit.r, type, this.buildCfg, this.buildRot, this.buildLevel);
-    this.refresh();
-    this.select(cell);
+    this.drag = { kind: 'move', cell: probe.cell };
+    this.view.setCellVisible(probe.cell, false);
+    this.view.hideSelect();
+    this.view.hideHandle();
+    this.view.clearTargets();
+    this.sfx.play('tap');
+    buzz(BUZZ.tap);
+    this.updateDrag(x, y);
+  }
+
+  /** カードをつまんで運びはじめた */
+  startPlaceDrag(id, x, y) {
+    if (this.mode !== 'build' || !PARTS[id]) return;
+    if (this.stockLeft(id) <= 0) return this.nope(`${PARTS[id].short}は もう ぜんぶ つかったよ`);
+    this.eraseMode = false;
+    this.tool = id;
+    this.ui.setTool(id);
+    this.select(null);
+    this.drag = { kind: 'place', type: id, cfg: 0, rot: 0 };
+    this.sfx.play('tap');
+    this.updateDrag(x, y);
+  }
+
+  updateDrag(x, y) {
+    const d = this.drag;
+    if (!d) return;
+    if (d.kind === 'height') return this.updateHeightDrag(y);
+
+    const hit = this.view.pick(x, y);
+    if (!hit || !this.model.onBoard(hit.q, hit.r)) {
+      this.view.hideGhost(); this.view.hideHover(); this.ui.hideBadge();
+      d.ok = false;
+      return;
+    }
+    const type = d.kind === 'place' ? d.type : d.cell.type;
+    const ignore = d.kind === 'move' ? d.cell : null;
+    // 高さは自動でおすすめを出す（動かしているときは今の高さをできるだけ保つ）
+    let lv = d.kind === 'move' && this.model.canPlace(hit.q, hit.r, d.cell.level, ignore).ok
+      ? d.cell.level
+      : this.model.suggestLevel(hit.q, hit.r, this.defaultLevel(type));
+    const can = this.model.canPlace(hit.q, hit.r, lv, ignore);
+    const stock = d.kind === 'place' ? this.stockLeft(type) > 0 : true;
+    d.q = hit.q; d.r = hit.r; d.level = lv; d.ok = can.ok && stock;
+
+    this.view.showHover(hit.q, hit.r, null);
+    this.view.showGhost(type,
+      d.kind === 'place' ? d.cfg : d.cell.cfg,
+      d.kind === 'place' ? d.rot : d.cell.rot,
+      hit.q, hit.r, lv, d.ok);
+    this.ui.showBadge(x, y, d.ok ? `たかさ ${lv}` : (can.ok ? 'もう ないよ' : can.why), d.ok ? '' : 'bad');
+  }
+
+  updateHeightDrag(y) {
+    const d = this.drag;
+    const lv = clamp(d.startLevel + Math.round(this.view.pxToLevels(y - d.startY)), 0, MAX_LEVEL);
+    if (lv !== d.cell.level && this.model.setLevel(d.cell, lv)) {
+      this.view.rebuild(this.model);
+      this.view.showSelect(d.cell.q, d.cell.r, d.cell.level);
+      this.sfx.play('tap');
+    }
+    const g = this.gradeOf(d.cell);
+    this.ui.showBadge(this.view.canvas.clientWidth / 2, y,
+      `たかさ ${d.cell.level}` + (g ? '\n' + g.text : ''), g ? g.kind : '');
+  }
+
+  endDrag(x, y, cancelled) {
+    const d = this.drag;
+    this.drag = null;
+    this.ui.hideBadge();
+    this.view.hideGhost();
+    this.view.hideHover();
+    if (!d) return;
+
+    if (d.kind === 'height') {
+      this.refresh();
+      this.select(d.cell);
+      const g = this.gradeOf(d.cell);
+      if (g) this.hint(g.text, g.kind === 'good' ? 'go' : 'pick');
+      buzz(BUZZ.place);
+      return;
+    }
+
+    if (cancelled || !d.ok) {
+      if (d.kind === 'move') this.view.setCellVisible(d.cell, true);
+      this.history.past.pop();
+      if (d.kind === 'move') this.select(d.cell);
+      return;
+    }
+
+    if (d.kind === 'place') {
+      const cell = this.model.setPart(d.q, d.r, d.type, d.cfg, d.rot, d.level);
+      this.refresh();
+      this.select(cell);
+    } else {
+      this.model.moveTo(d.cell, d.q, d.r, d.level);
+      this.refresh();
+      this.select(d.cell);
+    }
     this.sfx.play('place');
     buzz(BUZZ.place);
   }
 
-  railAt(hit) {
-    const cell = hit.cell;
-    if (!this.railFrom) {
-      if (!cell) return this.nope('パーツを タップしてね');
-      const targets = this.model.railTargets(cell);
-      if (!targets.length) return this.nope('この パーツから つなげる あいてが いないよ');
-      this.railFrom = cell;
-      this.view.showSelect(cell.q, cell.r, cell.level);
-      this.view.showTargets(targets);
-      this.updateHint();
+  /** キーボードから たかさを 1 段ずつ動かす（パソコン用） */
+  nudgeLevel(d) {
+    if (!this.selected) return;
+    this.history.push(this.model);
+    if (this.model.setLevel(this.selected, this.selected.level + d)) {
+      this.refresh();
+      this.select(this.selected);
+      const g = this.gradeOf(this.selected);
+      if (g) this.hint(g.text, g.kind === 'good' ? 'go' : 'pick');
+    } else this.history.past.pop();
+  }
+
+  /** そのパーツに繋がっているレールの、坂ぐあいのまとめ */
+  gradeOf(cell) {
+    const rails = this.model.railsOf(cell);
+    if (!rails.length) return null;
+    const gm = this.model.gradeMap();
+    const g = rails.map((l) => gm.get(l));
+    if (g.includes('up')) return { kind: 'bad', text: 'のぼりざか！ ボールは のぼれないよ' };
+    if (g.includes('flat')) return { kind: 'bad', text: 'たいらすぎて とまっちゃう' };
+    if (g.includes('steep')) return { kind: 'warn', text: 'ちょっと きゅうかも' };
+    if (g.includes('gentle')) return { kind: 'warn', text: 'すこし ゆるいかも' };
+    return { kind: 'good', text: 'ころがる さかだよ！' };
+  }
+
+  /** はじめて置くときの、めやすの高さ */
+  defaultLevel(type) {
+    if (type === 'goal') return 0;
+    if (type === 'starter') return 14;
+    return 8;
+  }
+
+  /* ── タップ ── */
+
+  onTap(x, y) {
+    if (this.mode !== 'build') return;
+    const hit = this.view.pick(x, y, this.eraseMode);
+    if (!hit || !this.model.onBoard(hit.q, hit.r)) return this.select(null);
+    if (this.eraseMode) return this.eraseAt(hit);
+
+    if (hit.cell) {
+      // 光っている あいてなら レールで つなぐ
+      if (this.selected && this.targets && this.targets.includes(hit.cell)) {
+        return this.makeRail(this.selected, hit.cell);
+      }
+      this.select(hit.cell);
       this.sfx.play('tap'); buzz(BUZZ.tap);
       return;
     }
-    if (cell === this.railFrom || !cell) {
-      this.railFrom = null;
-      this.view.clearTargets();
-      this.view.hideSelect();
-      this.updateHint();
-      return;
-    }
-    const chk = this.model.probeRail(this.railFrom, cell);
-    if (!chk.ok) return this.nope(chk.why);
-    if (this.stockLeft(chk.type) <= 0) {
-      return this.nope(`${RAILS[chk.type].name}が もう ないよ`);
-    }
+    // 何もないマスを タップ：えらんだ カードが あれば そこに置く
+    if (this.tool && PARTS[this.tool]) return this.quickPlace(hit);
+    this.select(null);
+  }
+
+  quickPlace(hit) {
+    const type = this.tool;
+    if (this.stockLeft(type) <= 0) return this.nope(`${PARTS[type].short}は もう ぜんぶ つかったよ`);
+    const lv = this.model.suggestLevel(hit.q, hit.r, this.defaultLevel(type));
+    const can = this.model.canPlace(hit.q, hit.r, lv);
+    if (!can.ok) return this.nope(can.why);
     this.history.push(this.model);
-    this.model.smartRail(this.railFrom, cell);
-    this.railFrom = null;
-    this.view.clearTargets();
-    this.view.hideSelect();
+    const cell = this.model.setPart(hit.q, hit.r, type, 0, 0, lv);
     this.refresh();
-    this.updateHint();
+    this.select(cell);
+    this.sfx.play('place'); buzz(BUZZ.place);
+  }
+
+  makeRail(a, b) {
+    const chk = this.model.probeRail(a, b);
+    if (!chk.ok) return this.nope(chk.why);
+    if (this.stockLeft(chk.type) <= 0) return this.nope(`${RAILS[chk.type].name}が もう ないよ`);
+    this.history.push(this.model);
+    this.model.smartRail(a, b);
+    this.refresh();
+    this.select(b);           // つづけて つなげられるように、つないだ先を えらぶ
     this.sfx.play('connect');
     buzz(BUZZ.connect);
+    const g = this.gradeOf(b);
+    if (g && g.kind !== 'good') this.ui.toast(g.text, 'bad');
+  }
+
+  stockLeft(id) {
+    if (id === 'rail') return RAIL_ORDER.reduce((t, r) => t + this.stockLeft(r), 0);
+    if (!this.limits || this.limits[id] == null) return Infinity;
+    return this.limits[id] - (this.model.usage()[id] || 0);
+  }
+
+  onHover(x, y) {
+    if (this.mode !== 'build' || this.drag) return;
+    const hit = this.view.pick(x, y);
+    if (!hit || !this.model.onBoard(hit.q, hit.r)) { this.view.hideHover(); return; }
+    this.view.showHover(hit.q, hit.r, hit.cell ? hit.cell.level : null);
   }
 
   eraseAt(hit) {
@@ -343,7 +469,7 @@ class App {
   }
 
   rotate(d) {
-    if (!this.selected) { this.buildRot = (this.buildRot + d + 6) % 6; this.sfx.play('rotate'); return; }
+    if (!this.selected) return;
     this.history.push(this.model);
     this.model.rotate(this.selected, d);
     this.refresh();
@@ -374,8 +500,6 @@ class App {
     if (!m) return;
     this.model = m;
     this.select(null);
-    this.railFrom = null;
-    this.view.clearTargets();
     this.rebuildAll();
     this.sfx.play('tap');
   }
@@ -566,7 +690,6 @@ class App {
     this.limits = { ...zero, ...ch.limits, balls: SET_INVENTORY.balls };
     this.history.clear();
     this.select(null);
-    this.railFrom = null;
     this.rebuildAll();
     this.ui.setBalls(this.model.ballCount);
     this.ui.setQuest(ch, { cleared: this.cleared.has(ch.id) });
@@ -689,26 +812,41 @@ class App {
     this.ui.modal('あそびかた',
       `<p>でんちも モーターも つかいません。<b>おもさ（じゅうりょく）だけ</b>で ボールを ゴールまで はこぼう！</p>
 
-      <div class="step"><span class="n">1</span><p><b>パーツを えらぶ</b><br>したの れつから えらんで、がめんを タップすると おけるよ。</p></div>
-      <div class="step"><span class="n">2</span><p><b>たかさを かえる</b><br>おいた パーツは えらばれた じょうたい。みぎの スライダーを うごかすと 上下する。<br>
-        <b>たかい ところから ひくい ところへ</b> ならべるのが コツ！</p></div>
-      <div class="step"><span class="n">3</span><p><b>レールで つなぐ</b><br>「レール」を えらんで、つなぎたい パーツを 2つ タップ。<br>
-        パーツの むきは <b>じどうで そろう</b>から、きにしなくて だいじょうぶ。</p></div>
-      <div class="step"><span class="n">4</span><p><b>ころがす！</b><br>みどりの ボタンを おすと ボールが でてくるよ。</p></div>
+      <div class="step"><span class="n">1</span><p><b>カードを つまんで はこぶ</b><br>
+        したの カードを ゆびで つまんだまま、ばんの うえまで はこんで はなす。<br>
+        <b>たかさは じどうで きまる</b>から、いいかんじの さかに なるよ。</p></div>
+
+      <div class="step"><span class="n">2</span><p><b>パーツを タップして つなぐ</b><br>
+        パーツを タップすると、つなげる あいてが <b>金いろに ひかる</b>。<br>
+        ひかった あいてを タップ すれば レールで つながる。つづけて タップ していけば どんどん のびるよ。<br>
+        パーツの むきは じどうで そろうから きにしなくて だいじょうぶ。</p></div>
+
+      <div class="step"><span class="n">3</span><p><b>たかさを かえる</b><br>
+        えらんだ パーツの うえに でる <b>金いろの とって</b>を、上下に つまんで うごかす。</p></div>
+
+      <div class="step"><span class="n">4</span><p><b>レールの いろを みる</b><br>
+        <span style="color:#9aa5b2">はいいろ</span>＝ちょうどいい　
+        <span style="color:#ffc93c">きいろ</span>＝ゆるい／きゅう　
+        <span style="color:#ff6b6b">あか</span>＝のぼりざか、ボールは のぼれない<br>
+        あかい レールが あったら、たかさを かえて なおそう。</p></div>
+
+      <div class="step"><span class="n">5</span><p><b>ころがす！</b><br>
+        みどりの ボタンを おすと ボールが でてくるよ。</p></div>
 
       <h3>ゆびの つかいかた</h3>
       <ul>
-        <li>1ぽんゆびで うごかす … ぐるっと まわして みる</li>
-        <li>2ほんゆびで つまむ … 大きく・小さく する</li>
-        <li>2ほんゆびで うごかす … よこに ずらす</li>
+        <li><b>おきまちがえても だいじょうぶ</b> … おいた パーツも つまんで はこべば うごかせる</li>
+        <li>なにもない ところを 1本ゆびで うごかす … ぐるっと まわして みる</li>
+        <li>2本ゆびで つまむ・うごかす … 大きく／小さく、よこに ずらす</li>
+        <li>まちがえたら <b>もどす</b> ボタン</li>
       </ul>
 
       <h3>おぼえておくと つよい</h3>
       <ul>
         <li>はやすぎる ボールは <b>キュッと まがる みち</b>で とび出しちゃう</li>
-        <li><b>キャノン</b>に とびこむと、はんたいがわの ボールが ビュン！ スタートより <b>上に のぼれる</b> ゆいいつの ほうほう</li>
+        <li><b>キャノン</b>に とびこむと はんたいがわの ボールが ビュン！ スタートより <b>上に のぼれる</b> ゆいいつの ほうほう</li>
         <li>おなじ ばしょでも たかさが はなれていれば パーツを <b>かさねて おける</b>（うずまきの 下に うけざら、など）</li>
-        <li>パーツの かずは ほんものの セットと おなじ。ふだを みると のこりが わかるよ</li>
+        <li>パーツの かずは ほんものの セットと おなじ。ふだの すうじが のこりの かず</li>
       </ul>
       <p style="color:var(--muted);font-size:12px">※ ファンが つくった ひこうしきの ゲームです。GraviTrax は Ravensburger AG の しょうひょうです。</p>`,
       [{ label: 'ちょうせんを みる', onClick: () => this.showQuests() }, { label: 'あそぶ！', primary: true }]);
@@ -726,10 +864,10 @@ class App {
     switch (k) {
       case 'r': this.rotate(e.shiftKey ? -1 : 1); break;
       case 't': this.variant(1); break;
-      case 'e': this.setLevel(this.liftValue + 1); break;
-      case 'q': this.setLevel(this.liftValue - 1); break;
+      case 'e': this.nudgeLevel(+1); break;
+      case 'q': this.nudgeLevel(-1); break;
       case 'delete': case 'backspace': this.deleteSelected(); break;
-      case 'escape': this.select(null); this.railFrom = null; this.view.clearTargets(); this.updateHint(); break;
+      case 'escape': this.select(null); this.updateHint(); break;
       case ' ': e.preventDefault(); this.onGo(); break;
       case 'b': this.setMode('build'); break;
       default: {

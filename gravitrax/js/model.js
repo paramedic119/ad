@@ -7,7 +7,7 @@
  * 立体的なコースが作れる。支えは PRO のピラー／バルコニーに見立てた支柱で描く。
  */
 import {
-  opposite, neighbor, lineBetween, hexDistance, hexBoard, clamp, MAX_LEVEL,
+  opposite, neighbor, lineBetween, hexDistance, hexBoard, clamp, MAX_LEVEL, H, HEX_W,
 } from './core.js';
 import { PARTS, PART_ORDER, RAILS, RAIL_BY_SPAN, SET_INVENTORY } from './parts.js';
 
@@ -110,6 +110,125 @@ export class Model {
     this.cells.set(ckey(cell.q, cell.r, v), cell);
     // 高さが変わってもレールは繋がったまま（傾きが変わるだけ）
     return true;
+  }
+
+  /**
+   * パーツを別のマス・高さへ動かす。
+   * つながっていたレールは、まだ届く相手なら張り直し、届かなくなったら外す。
+   */
+  moveTo(cell, q, r, level) {
+    if (cell.locked) return { ok: false, why: 'この パーツは おだいで きまっているよ' };
+    const chk = this.canPlace(q, r, level, cell);
+    if (!chk.ok) return chk;
+    if (cell.q === q && cell.r === r && cell.level === level) return { ok: true };
+    this.cells.delete(ckey(cell.q, cell.r, cell.level));
+    cell.q = q; cell.r = r; cell.level = level;
+    this.cells.set(ckey(q, r, level), cell);
+    this.revalidateRails();
+    return { ok: true };
+  }
+
+  /** パーツを動かしたあとに、レールの向き・長さを付け直す */
+  revalidateRails() {
+    for (const l of [...this.rails]) {
+      const line = lineBetween(l.a.q, l.a.r, l.b.q, l.b.r);
+      if (!line || line.span < 2 || line.span > 4) { this.removeRail(l); continue; }
+      l.d1 = line.dir;
+      l.d2 = opposite(line.dir);
+      l.span = line.span;
+      l.type = RAIL_BY_SPAN[line.span];
+    }
+    // 同じ出入口に 2 本ついてしまったら、あとから来たほうを外す
+    const used = new Set();
+    for (const l of [...this.rails]) {
+      const k1 = ckey(l.a.q, l.a.r, l.a.level) + ':' + l.d1;
+      const k2 = ckey(l.b.q, l.b.r, l.b.level) + ':' + l.d2;
+      if (used.has(k1) || used.has(k2)) { this.removeRail(l); continue; }
+      used.add(k1); used.add(k2);
+    }
+    // 出入口の向きをそろえ直す。どうしても無理なレールは外す。
+    for (const cell of new Set(this.rails.flatMap((l) => [l.a, l.b]))) {
+      let guard = 8;
+      while (guard-- > 0 && !this.fitPorts(cell, this._needDirs(cell))) {
+        const mine = this.railsOf(cell);
+        if (!mine.length) break;
+        this.removeRail(mine[mine.length - 1]);
+      }
+    }
+  }
+
+  /**
+   * そのマスに置くとちょうど良さそうな高さを返す。
+   * レールが届く範囲にあるパーツのうち、いちばん近くて高いものから
+   * 気持ちよく転がる坂（およそ 12 度）になる高さを選ぶ。
+   */
+  suggestLevel(q, r, fallback = 0) {
+    let best = null;
+    for (const c of this.cells.values()) {
+      if (c.q === q && c.r === r) continue;
+      const line = lineBetween(q, r, c.q, c.r);
+      if (!line || line.span < 2 || line.span > 4) continue;
+      if (!best || line.span < best.span || (line.span === best.span && c.level > best.cell.level)) {
+        best = { cell: c, span: line.span };
+      }
+    }
+    if (!best) return clamp(fallback, 0, MAX_LEVEL);
+    const drop = Math.max(2, Math.round(1.25 * best.span));
+    let lv = clamp(best.cell.level - drop, 0, MAX_LEVEL);
+    // 上下に別のパーツがあってぶつかるなら、置ける高さまでずらす
+    for (let i = 0; i < MAX_LEVEL; i++) {
+      for (const d of [0, i, -i]) {
+        const v = clamp(lv + d, 0, MAX_LEVEL);
+        if (this.canPlace(q, r, v).ok) return v;
+      }
+    }
+    return lv;
+  }
+
+  /**
+   * スタートから辿って、それぞれのレールをどちら向きに通るかを調べる。
+   * これが分かると「のぼりざか」を見抜ける（ボールは坂を登れない）。
+   */
+  railFlow() {
+    const flow = new Map();
+    const queue = [...this.cells.values()].filter((c) => c.type === 'starter');
+    const seen = new Set(queue);
+    while (queue.length) {
+      const c = queue.shift();
+      for (const l of this.railsOf(c)) {
+        const other = l.a === c ? l.b : l.a;
+        if (!flow.has(l)) flow.set(l, other.level < c.level ? 'down' : 'up');
+        if (!seen.has(other)) { seen.add(other); queue.push(other); }
+      }
+    }
+    return flow;
+  }
+
+  /**
+   * レールの傾き具合。このゲームでいちばん大事なルールを目に見えるようにする。
+   *   'up'    のぼりざか。ボールは登れない
+   *   'flat'  たいらすぎて とまってしまう
+   *   'gentle' ゆるい / 'steep' きゅうすぎ
+   *   'good'  ちょうどよく ころがる
+   */
+  railGrade(rail, flow) {
+    if ((flow || this._flow || new Map()).get(rail) === 'up') return 'up';
+    const drop = Math.abs(rail.a.level - rail.b.level) * H;
+    const run = (rail.span - 1) * HEX_W;
+    const deg = (Math.atan2(drop, run) * 180) / Math.PI;
+    if (deg < 4) return 'flat';
+    if (deg < 8) return 'gentle';
+    if (deg > 34) return 'steep';
+    return 'good';
+  }
+
+  /** すべてのレールの坂ぐあいを一度に求める */
+  gradeMap() {
+    const flow = this.railFlow();
+    this._flow = flow;
+    const out = new Map();
+    for (const l of this.rails) out.set(l, this.railGrade(l, flow));
+    return out;
   }
 
   /** 向き・形が変わって使えなくなったレールを外す */
