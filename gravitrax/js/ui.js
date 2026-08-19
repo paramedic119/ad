@@ -100,11 +100,6 @@ export class UI {
     const dock = el('div'); dock.id = 'dock';
     dock.innerHTML = `
       <div id="tray"></div>
-      <div id="acts">
-        <button class="act" data-a="undo"><i>↩</i><span>もどす</span></button>
-        <button class="act" data-a="rotate"><i>🔄</i><span>まわす</span></button>
-        <button class="act" data-a="erase"><i>🧹</i><span>けす</span></button>
-      </div>
       <div id="ballrow">
         <span class="brow-lb">ボールの かず</span>
         <button class="bstep" id="ball-down">−</button>
@@ -112,6 +107,9 @@ export class UI {
         <button class="bstep" id="ball-up">＋</button>
       </div>
       <div id="mainrow">
+        <button class="act" data-a="undo"><i>↩</i><span>もどす</span></button>
+        <button class="act" data-a="rotate"><i>🔄</i><span>まわす</span></button>
+        <button class="act" data-a="erase"><i>🧹</i><span>けす</span></button>
         <button id="b-swap"></button>
         <button id="b-go"></button>
       </div>`;
@@ -119,8 +117,6 @@ export class UI {
     this.dock = dock;
 
     /* ── トースト・モーダル ── */
-    this.toastBox = el('div'); this.toastBox.id = 'toast';
-    b.appendChild(this.toastBox);
     this.modalBox = el('div'); this.modalBox.id = 'modal';
     this.modalBox.addEventListener('pointerdown', (e) => { if (e.target === this.modalBox) this.closeModal(); });
     b.appendChild(this.modalBox);
@@ -278,33 +274,58 @@ export class UI {
   }
 
   setHint(text, kind = '') {
+    this._hintSaved = null;
+    clearTimeout(this._toastTimer);
+    this._showHint(text, kind);
+  }
+
+  _showHint(text, kind = '') {
     this.hint.textContent = text || '';
-    this.hint.className = kind;
+    this.hint.className = kind || '';
     this.hint.style.display = text ? '' : 'none';
+    this.measureDock();
   }
 
   setQuest(ch, state) {
     if (!ch) { this.quest.classList.remove('show'); return; }
     this.quest.classList.add('show');
     this.quest.innerHTML = `
-      <div class="q-top"><span class="q-tag">おだい</span><b>${esc(ch.name)}</b>${state.cleared ? '<span class="q-ok">クリア！</span>' : ''}</div>
-      <div class="q-goal">${esc(ch.goalText)}</div>
+      <button class="q-head">
+        <span class="q-tag">おだい</span>
+        <b>${esc(ch.name)}</b>
+        <span class="q-goal">${esc(ch.goalText)}</span>
+        ${state.cleared ? '<span class="q-ok">✓</span>' : ''}
+        <span class="q-chev">⌄</span>
+      </button>
       <div class="q-act">
         <button data-a="hint">ヒント</button>
         <button data-a="sample">おてほん</button>
         <button data-a="retry">やりなおす</button>
         <button data-a="quit">やめる</button>
       </div>`;
-    for (const btn of this.quest.querySelectorAll('[data-a]')) {
+    this.quest.classList.remove('open');
+    this.quest.querySelector('.q-head').onclick = () => {
+      this.quest.classList.toggle('open');
+      this.measureDock();
+    };
+    for (const btn of this.quest.querySelectorAll('.q-act [data-a]')) {
       btn.onclick = () => this.emit('quest:' + btn.dataset.a);
     }
   }
 
+  /**
+   * 知らせ。ヒントと同じ場所を一時的に借りる。
+   * 帯が 2 本 出ると どちらを読めばいいか分からなくなるので、必ず 1 本にする。
+   */
   toast(msg, kind = '') {
-    const t = el('div', 'toast ' + kind, esc(msg));
-    this.toastBox.appendChild(t);
-    setTimeout(() => { t.classList.add('out'); }, 1900);
-    setTimeout(() => t.remove(), 2400);
+    clearTimeout(this._toastTimer);
+    if (!this._hintSaved) this._hintSaved = { text: this.hint.textContent, kind: this.hint.className };
+    this._showHint(msg, kind + ' pop');
+    this._toastTimer = setTimeout(() => {
+      const h = this._hintSaved;
+      this._hintSaved = null;
+      if (h) this._showHint(h.text, h.kind);
+    }, 2300);
   }
 
   modal(title, html, actions = [{ label: 'とじる' }]) {

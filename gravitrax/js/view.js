@@ -816,7 +816,9 @@ export class View {
     const hdr = document.getElementById('hdr');
     const quest = document.getElementById('quest');
     const top = (hdr ? hdr.offsetHeight : 56) + (quest && quest.classList.contains('show') ? quest.offsetHeight + 8 : 0) + 8;
-    const bottom = h - (dock ? dock.offsetHeight : 0) - 46;   // ヒント表示のぶんも空ける
+    const hint = document.getElementById('hint');
+    const hintH = hint && hint.style.display !== 'none' ? hint.offsetHeight + 12 : 0;
+    const bottom = h - (dock ? dock.offsetHeight : 0) - hintH;
     const visFrac = Math.max(0.32, (bottom - top) / h);
     const shiftPx = (top + bottom) / 2 - h / 2;
     const vFov = (this.camera.fov * Math.PI) / 180;
