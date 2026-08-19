@@ -139,6 +139,7 @@ class App {
     this.view.hideGhost();
     this.view.hideHover();
     this.view.clearTargets();
+    this.view.clearSpots();
     this.view.hideHandle();
     this.ui.hideBadge();
     this.drag = null;
@@ -201,14 +202,21 @@ class App {
     this.ui.setSelected(this.selected);
     if (this.selected) {
       this.view.showSelect(this.selected.q, this.selected.r, this.selected.level);
-      this.view.showHandle(this.selected);
+      // お題で固定されたパーツは高さも変えられない
+      if (this.selected.locked) this.view.hideHandle();
+      else this.view.showHandle(this.selected);
       this.targets = this.model.railTargets(this.selected);
       this.view.showTargets(this.targets);
+      // つなげる相手がいないときは、置けばつながる場所を教える
+      this.spots = this.targets.length ? [] : this.model.railSpots(this.selected);
+      this.view.showSpots(this.spots);
     } else {
       this.view.hideSelect();
       this.view.hideHandle();
       this.view.clearTargets();
+      this.view.clearSpots();
       this.targets = [];
+      this.spots = [];
     }
     this.updateHint();
   }
@@ -226,6 +234,10 @@ class App {
       if (this.targets && this.targets.length) {
         return this.hint('光っている パーツを タップ！', 'pick');
       }
+      if (this.spots && this.spots.length) {
+        return this.hint('水いろの ばしょに パーツを おくと つながるよ', 'pick');
+      }
+      if (this.selected.locked) return this.hint('この パーツは うごかせないよ');
       return this.hint('金の とってを つまむと たかさが かわる');
     }
     this.hint('カードを つまんで ばんに はこんでね');
@@ -250,6 +262,7 @@ class App {
       this.drag = { kind: 'height', cell: this.selected, startLevel: this.selected.level, startY: y };
       this.view.hideHandle();
       this.view.clearTargets();
+      this.view.clearSpots();
       this.sfx.play('tap');
       return;
     }
@@ -260,6 +273,7 @@ class App {
     this.view.hideSelect();
     this.view.hideHandle();
     this.view.clearTargets();
+    this.view.clearSpots();
     this.sfx.play('tap');
     buzz(BUZZ.tap);
     this.updateDrag(x, y);
@@ -817,9 +831,13 @@ class App {
         <b>たかさは じどうで きまる</b>から、いいかんじの さかに なるよ。</p></div>
 
       <div class="step"><span class="n">2</span><p><b>パーツを タップして つなぐ</b><br>
-        パーツを タップすると、つなげる あいてが <b>金いろに ひかる</b>。<br>
+        パーツを タップすると、つなげる あいてが <b style="color:#ffd25a">金いろに ひかる</b>。<br>
         ひかった あいてを タップ すれば レールで つながる。つづけて タップ していけば どんどん のびるよ。<br>
         パーツの むきは じどうで そろうから きにしなくて だいじょうぶ。</p></div>
+
+      <div class="step"><span class="n">•</span><p><b>あいてが いないとき</b><br>
+        レールは <b>2〜4 マス さき</b>までしか とどかない。とおすぎる ときは
+        <b style="color:#6fd8ff">水いろに ひかった ばしょ</b>に パーツを おこう。そこに おけば つながるよ。</p></div>
 
       <div class="step"><span class="n">3</span><p><b>たかさを かえる</b><br>
         えらんだ パーツの うえに でる <b>金いろの とって</b>を、上下に つまんで うごかす。</p></div>

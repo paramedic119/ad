@@ -101,7 +101,7 @@ export class Model {
 
   /** 高さを変える。移動先が空いていなければ何もしない。 */
   setLevel(cell, level) {
-    if (!cell) return false;
+    if (!cell || cell.locked) return false;
     const v = clamp(Math.round(level), 0, MAX_LEVEL);
     if (v === cell.level) return false;
     if (!this.canPlace(cell.q, cell.r, v, cell).ok) return false;
@@ -346,6 +346,26 @@ export class Model {
     const out = [];
     for (const b of this.cells.values()) {
       if (b !== a && this.probeRail(a, b).ok) out.push(b);
+    }
+    return out;
+  }
+
+  /**
+   * そのパーツから「レールが届く空きマス」を全部あつめる。
+   * つなげる相手がいないとき、ここに置けばつながると教えるために使う。
+   */
+  railSpots(a) {
+    const out = [];
+    for (let d = 0; d < 6; d++) {
+      // 出入口をその向きに作れないなら、この方向はあきらめる
+      if (!this.fitPorts(a, [...this._needDirs(a), d], false)) continue;
+      let q = a.q, r = a.r;
+      for (let n = 1; n <= 4; n++) {
+        [q, r] = neighbor(q, r, d);
+        if (!this.onBoard(q, r)) break;
+        if (n < 2) continue;
+        if (this.canPlace(q, r, this.suggestLevel(q, r)).ok) out.push([q, r]);
+      }
     }
     return out;
   }

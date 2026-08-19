@@ -370,7 +370,9 @@ export class View {
     this.ballGroup = new THREE.Group();
     this.helperGroup = new THREE.Group();
     this.targetGroup = new THREE.Group();
-    this.scene.add(this.boardGroup, this.courseGroup, this.ballGroup, this.helperGroup, this.targetGroup);
+    this.spotGroup = new THREE.Group();
+    this.scene.add(this.boardGroup, this.courseGroup, this.ballGroup, this.helperGroup,
+      this.targetGroup, this.spotGroup);
     this.particles = new Particles();
     this.scene.add(this.particles.points);
     this.followEnabled = true;
@@ -790,6 +792,35 @@ export class View {
 
   clearTargets() { this.targetGroup.clear(); }
 
+  /**
+   * 「ここに おくと つながるよ」の 置き場所を 光らせる。
+   * 金いろ＝タップでつながる相手、水いろ＝ここに置く、と 色で 役わりを 分ける。
+   */
+  showSpots(cells) {
+    this.clearSpots();
+    if (!this._spotGeo) {
+      this._spotGeo = new THREE.ExtrudeGeometry(hexShape(HEX_R * 0.82, 0.12), { depth: 0.05, bevelEnabled: false });
+      this._spotGeo.rotateX(Math.PI / 2);
+      this._spotMat = new THREE.MeshBasicMaterial({
+        color: 0x6fd8ff, transparent: true, opacity: 0.34, depthWrite: false });
+      this._spotRing = new THREE.TorusGeometry(HEX_R * 0.84, 0.055, 6, 6);
+      this._spotRing.rotateX(Math.PI / 2);
+      this._spotRingMat = new THREE.MeshBasicMaterial({ color: 0xc4efff, transparent: true, opacity: 0.95 });
+    }
+    for (const [q, r] of cells) {
+      const [cx, cz] = cellCenter(q, r);
+      const fill = new THREE.Mesh(this._spotGeo, this._spotMat);
+      fill.position.set(cx, 0.05, cz);
+      const ring = new THREE.Mesh(this._spotRing, this._spotRingMat);
+      ring.rotation.z = Math.PI / 6;
+      ring.position.set(cx, 0.08, cz);
+      this.spotGroup.add(fill, ring);
+    }
+    this._spotT = 0;
+  }
+
+  clearSpots() { this.spotGroup.clear(); }
+
   /** 画面 1px が、注視点のあたりでワールド何単位にあたるか */
   perPixel() {
     const h = this.canvas.clientHeight || window.innerHeight;
@@ -859,6 +890,12 @@ export class View {
   /** 毎フレーム呼ぶ（アニメーション） */
   update(dt) {
     this.particles.update(dt);
+    if (this.spotGroup.children.length) {
+      this._spotT = (this._spotT || 0) + dt;
+      const k = 0.6 + Math.sin(this._spotT * 3.4) * 0.4;
+      this._spotMat.opacity = 0.20 + k * 0.26;
+      this._spotRingMat.opacity = 0.5 + k * 0.45;
+    }
     if (this.targetGroup.children.length) {
       this._targetT = (this._targetT || 0) + dt;
       const s = 1 + Math.sin(this._targetT * 5) * 0.12;
