@@ -162,36 +162,58 @@ export class UI {
 
   /**
    * カードは「つまんで ばんに はこぶ」もの。
-   * 指が動かないまま離したときだけ、ふつうの選択として扱う。
+   *
+   * ただし よこに ならんだ カードの列は 指で スクロールしたい。
+   * そこで CSS の touch-action: pan-x と組み合わせ、
+   *   よこ方向のドラッグ → ブラウザに任せてトレイをスクロール
+   *   たて方向（上）のドラッグ → パーツを持ち上げて ばんへ運ぶ
+   * と、動かした向きで役わりを分ける。ばんは トレイの 上にあるので、
+   * 「上へ引っぱり出す」のは 自然な動きになる。
    */
   _wireCard(card, id) {
-    let on = false, moved = 0, sx = 0, sy = 0, dragging = false;
-    card.style.touchAction = 'none';
-    card.addEventListener('pointerdown', (e) => {
-      if (card.classList.contains('out')) { this.emit('pick', id); return; }
-      on = true; moved = 0; dragging = false; sx = e.clientX; sy = e.clientY;
-      card.setPointerCapture(e.pointerId);
-    });
-    card.addEventListener('pointermove', (e) => {
-      if (!on) return;
-      moved = Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy);
-      if (!dragging && moved > 10) {
+    let on = false, sx = 0, sy = 0, dragging = false, pid = null;
+    const stop = () => {
+      on = false; dragging = false; pid = null;
+      card.classList.remove('lift');
+      removeEventListener('pointermove', move);
+      removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', cancel);
+    };
+    const move = (e) => {
+      if (!on || e.pointerId !== pid) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!dragging) {
+        // よこに動いたらスクロール。手を引いてブラウザに任せる。
+        if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) return stop();
+        if (Math.abs(dy) < 12) return;
         dragging = true;
         card.classList.add('lift');
         this.emit('cardDragStart', id, e.clientX, e.clientY);
       }
-      if (dragging) this.emit('cardDrag', e.clientX, e.clientY);
-    });
-    const end = (e) => {
-      if (!on) return;
-      on = false;
-      card.classList.remove('lift');
-      if (dragging) this.emit('cardDrop', e.clientX, e.clientY, e.type === 'pointercancel');
-      else this.emit('pick', id);
-      dragging = false;
+      e.preventDefault();
+      this.emit('cardDrag', e.clientX, e.clientY);
     };
-    card.addEventListener('pointerup', end);
-    card.addEventListener('pointercancel', end);
+    const up = (e) => {
+      if (!on || e.pointerId !== pid) return;
+      const wasDragging = dragging;
+      stop();
+      if (wasDragging) this.emit('cardDrop', e.clientX, e.clientY, false);
+      else this.emit('pick', id);
+    };
+    const cancel = (e) => {
+      if (!on || e.pointerId !== pid) return;
+      const wasDragging = dragging;
+      stop();
+      if (wasDragging) this.emit('cardDrop', e.clientX, e.clientY, true);
+    };
+    card.addEventListener('pointerdown', (e) => {
+      if (card.classList.contains('out')) { this.emit('pick', id); return; }
+      on = true; dragging = false; pid = e.pointerId;
+      sx = e.clientX; sy = e.clientY;
+      addEventListener('pointermove', move, { passive: false });
+      addEventListener('pointerup', up);
+      addEventListener('pointercancel', cancel);
+    });
   }
 
   /** 指のそばに出すふきだし */
@@ -228,6 +250,8 @@ export class UI {
     requestAnimationFrame(() => {
       const h = this.dock ? this.dock.offsetHeight : 0;
       if (h) document.documentElement.style.setProperty('--dock-h', h + 'px');
+      const tray = document.getElementById('tray');
+      if (tray) tray.classList.toggle('scrollable', tray.scrollWidth > tray.clientWidth + 4);
     });
   }
 
@@ -242,19 +266,28 @@ export class UI {
   }
 
   setUsage(usage, limits) {
-    const left = (id) => (limits && limits[id] != null ? limits[id] - (usage[id] || 0) : null);
+    const cap = (id) => (limits && limits[id] != null ? limits[id] : null);
     for (const [id, card] of this.cards) {
       const ct = card.querySelector('.ct');
-      let n = null;
+      let max = null, left = null;
       if (id === 'rail') {
-        const parts = RAIL_ORDER.map(left).filter((v) => v != null);
-        n = parts.length ? parts.reduce((a, c) => a + c, 0) : null;
-      } else n = left(id);
-      if (n == null) { ct.textContent = ''; card.classList.remove('out'); continue; }
-      ct.textContent = n;
-      card.classList.toggle('out', n <= 0);
-      ct.classList.toggle('zero', n <= 0);
+        const caps = RAIL_ORDER.map(cap);
+        if (caps.every((v) => v != null)) {
+          max = caps.reduce((a, c) => a + c, 0);
+          left = max - RAIL_ORDER.reduce((a, r) => a + (usage[r] || 0), 0);
+        }
+      } else if (cap(id) != null) {
+        max = cap(id);
+        left = max - (usage[id] || 0);
+      }
+      // そもそも 0 個しか持てないパーツは、カードごと出さない（お題のとき）
+      card.classList.toggle('gone', max === 0);
+      if (left == null) { ct.textContent = ''; card.classList.remove('out'); continue; }
+      ct.textContent = left;
+      card.classList.toggle('out', left <= 0);
+      ct.classList.toggle('zero', left <= 0);
     }
+    this.measureDock();
   }
 
   setSelected(cell) {
